@@ -1,6 +1,7 @@
 param(
     [string]$AppRoot = '',
     [string]$ServerBaseUrl = '',
+    [string]$PreparedDirectory = '',
     [switch]$NoLaunch,
     [switch]$Force,
     [switch]$Quiet
@@ -35,6 +36,8 @@ function Get-CaijUpdateServerCandidates {
     # Endereco conhecido do servidor principal e descoberta na rede atual.
     # Isso recupera pendrives antigos cujo arquivo de configuracao esteja ausente
     # ou ainda aponte para um IP usado anteriormente.
+    [void]$candidates.Add('http://NAS-CAIJ:9100')
+    [void]$candidates.Add('http://192.168.15.200:9100')
     [void]$candidates.Add('http://INFOCAIJ:9100')
     [void]$candidates.Add('http://192.168.15.11:9100')
     try {
@@ -90,7 +93,7 @@ function Test-SafeRelativePath {
 function Set-CaijLauncherVisibility {
     foreach ($relative in @(
         '.git', 'CoreCAIJ', '.gitattributes', '.gitignore', '.hidden',
-        'InfoNotebook.bat', 'InfoNotebook.vbs', 'TestarNotebook.bat', 'TestarNotebook.vbs'
+        'InfoNotebook.vbs', 'TestarNotebook.bat', 'TestarNotebook.vbs'
     )) {
         $path = Join-Path $AppRoot $relative
         if (Test-Path -LiteralPath $path) {
@@ -100,7 +103,7 @@ function Set-CaijLauncherVisibility {
             } catch {}
         }
     }
-    foreach ($relative in @('InfoNotebook.lnk', 'InfoNotebookMac.command')) {
+    foreach ($relative in @('InfoNotebook.bat', 'InfoNotebook.lnk', 'InfoNotebookMac.command')) {
         $path = Join-Path $AppRoot $relative
         if (Test-Path -LiteralPath $path) {
             try {
@@ -120,6 +123,11 @@ function New-CaijWindowsShortcut {
         $shortcut = $shell.CreateShortcut($shortcutPath)
         $shortcut.TargetPath = Join-Path $env:WINDIR 'System32\wscript.exe'
         $shortcut.Arguments = '//B //Nologo "' + $vbsPath + '"'
+        $startupPath = Join-Path $AppRoot 'CoreCAIJ\AbrirInfoNotebook.ps1'
+        if (Test-Path -LiteralPath $startupPath) {
+            $shortcut.TargetPath = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+            $shortcut.Arguments = '-NoLogo -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $startupPath + '"'
+        }
         $shortcut.WorkingDirectory = $AppRoot
         $shortcut.IconLocation = (Join-Path $env:WINDIR 'System32\imageres.dll') + ',11'
         $shortcut.Save()
@@ -129,7 +137,10 @@ function New-CaijWindowsShortcut {
 }
 
 function Invoke-CaijUpdate {
-    $endpoint = Find-CaijUpdateEndpoint
+    $endpoint = if ($PreparedDirectory) {
+        $preparedManifestPath = Join-Path ([IO.Path]::GetFullPath($PreparedDirectory)) 'manifesto.json'
+        @{ BaseUrl=''; Manifest=(Get-Content -LiteralPath $preparedManifestPath -Raw | ConvertFrom-Json) }
+    } else { Find-CaijUpdateEndpoint }
     if (-not $endpoint) {
         Write-UpdateMessage 'Servidor de atualizacoes indisponivel; iniciando a versao local.'
         return $false
@@ -142,6 +153,11 @@ function Invoke-CaijUpdate {
         ([string](Get-Content -LiteralPath $versionPath -Raw -ErrorAction SilentlyContinue)).Trim()
     } else { '' }
     if (-not $remoteVersion) { throw 'Manifesto de atualizacao sem versao.' }
+    $localParsed = $null; $remoteParsed = $null
+    if (-not $Force -and [version]::TryParse($localVersion, [ref]$localParsed) -and [version]::TryParse($remoteVersion, [ref]$remoteParsed) -and $localParsed -gt $remoteParsed) {
+        Write-UpdateMessage "Versao local $localVersion e mais recente; pacote anterior ignorado."
+        return $false
+    }
     if (-not $Force -and $localVersion -eq $remoteVersion) {
         Write-UpdateMessage "Versao $localVersion ja esta atualizada."
         return $false
@@ -157,8 +173,14 @@ function Invoke-CaijUpdate {
 
     try {
         Write-UpdateMessage "Baixando a versao $remoteVersion..."
-        $packageUrl = Resolve-UpdateUrl -BaseUrl $baseUrl -PackageUrl ([string]$manifest.packageUrl)
-        Invoke-WebRequest -Uri $packageUrl -OutFile $zipPath -TimeoutSec 60 -UseBasicParsing -ErrorAction Stop
+        if ($PreparedDirectory) {
+            $packageName = [string]$manifest.packageName
+            if ([IO.Path]::GetFileName($packageName) -ne $packageName -or $packageName -notmatch '\.zip$') { throw 'Nome inseguro de pacote preparado.' }
+            Copy-Item -LiteralPath (Join-Path $PreparedDirectory $packageName) -Destination $zipPath
+        } else {
+            $packageUrl = Resolve-UpdateUrl -BaseUrl $baseUrl -PackageUrl ([string]$manifest.packageUrl)
+            Invoke-WebRequest -Uri $packageUrl -OutFile $zipPath -TimeoutSec 60 -UseBasicParsing -ErrorAction Stop
+        }
         $actualHash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
         $expectedHash = ([string]$manifest.sha256).Trim().ToLowerInvariant()
         if (-not $expectedHash -or $actualHash -ne $expectedHash) { throw 'O pacote baixado falhou na verificacao de integridade.' }

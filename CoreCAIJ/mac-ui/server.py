@@ -21,6 +21,8 @@ PORTA_SERVIDOR = 9100
 FALLBACK_SERVER = "http://INFOCAIJ:9100"
 FALLBACK_SERVER_LOCAL = "http://INFOCAIJ.local:9100"
 FALLBACK_SERVER_IP = "http://192.168.15.11:9100"
+NAS_SERVER = "http://NAS-CAIJ:9100"
+NAS_SERVER_IP = "http://192.168.15.200:9100"
 
 
 def format_os(value):
@@ -183,7 +185,7 @@ class AppState:
             candidates.append(os.environ["CAIJ_SERVIDOR_URL"])
         if os.environ.get("CAIJ_SERVIDOR_IP"):
             candidates.append(os.environ["CAIJ_SERVIDOR_IP"])
-        candidates.extend((FALLBACK_SERVER_LOCAL, FALLBACK_SERVER, FALLBACK_SERVER_IP))
+        candidates.extend((NAS_SERVER, NAS_SERVER_IP, FALLBACK_SERVER_LOCAL, FALLBACK_SERVER, FALLBACK_SERVER_IP))
         normalized = []
         for item in candidates:
             if item and item.strip():
@@ -267,6 +269,14 @@ class AppState:
                 self.save_runtime_data()
         return self.public_state()
 
+    def lookup_os_by_serial(self, serial):
+        value = str(serial or "").strip()
+        if not value:
+            raise ValueError("Informe a serial do equipamento.")
+        path = "/os-por-serial?serial=" + urllib.parse.quote(value, safe="")
+        response = self.request_server(path, timeout=45)
+        return {"ok": True, "ordens": response.get("ordens") or []}
+
     def reserve_os(self):
         resp = self.request_server("/proxima-os", method="POST", payload={}, timeout=12)
         num = resp.get("osNumero")
@@ -315,14 +325,14 @@ class AppState:
         osascript = shutil.which("osascript")
         if not osascript:
             return
-        created = str(event_data.get("osCriada") or "Nova OS")
+        created = str(event_data.get("osCriada") or "Novo rastreador")
         next_os = str(event_data.get("proximaOs") or "")
-        message = "{} foi criada em outra estacao.\n\nProxima OS disponivel: {}".format(created, next_os)
+        message = "{} foi criado em outra estacao.\n\nProximo rastreador disponivel: {}".format(created, next_os)
         message = message.replace("\\", "\\\\").replace('"', '\\"')
         script = (
             'tell application "System Events"\n'
             'activate\n'
-            'display dialog "{}" with title "InfoNotebook - Nova OS" '
+            'display dialog "{}" with title "InfoNotebook - Novo rastreador" '
             'buttons {{"Continuar com {}"}} default button 1 with icon note\n'
             'end tell'
         ).format(message, next_os.replace('"', '\\"'))
@@ -380,7 +390,7 @@ class AppState:
         }
         response = self.request_server("/criar-os-altertag", method="POST", payload=payload, timeout=45)
         if str(response.get("status") or "").lower() != "ok":
-            return {"ok": False, "message": response.get("mensagem") or "Falha ao criar OS."}
+            return {"ok": False, "message": response.get("mensagem") or "Falha ao criar rastreador."}
 
         created = int(response.get("osNumero") or 0)
         next_num = int(response.get("proximoDisponivel") or (created + 1))
@@ -395,7 +405,7 @@ class AppState:
             self.save_runtime_data()
         return {
             "ok": True,
-            "message": "OS {} criada com sucesso.".format(format_os(created)),
+            "message": "Rastreador {} criado com sucesso.".format(format_os(created)),
             "osCriada": format_os(created),
             "proximaOs": format_os(next_num),
             "response": response,
@@ -436,6 +446,9 @@ class AppState:
         if error:
             return {"ok": False, "message": error}
         with self.lock:
+            explicit_os = int(request_data.get("osNumero") or 0)
+            if include_os and explicit_os > 0:
+                self.set_os_number(explicit_os, manual=True)
             if request_data.get("info"):
                 self.update_info(request_data["info"], request_data.get("equipmentType"))
             pending_created = int(self.data.get("pendingCreatedOs") or 0)
@@ -459,10 +472,12 @@ class AppState:
                     self.data["pendingCreatedOs"] = 0
                     self.data["manualOsSet"] = False
                     self.save_runtime_data()
-                try:
-                    self.sync_os()
-                except Exception:
-                    pass
+            threading.Thread(
+                target=self.finish_print_in_background,
+                args=(payload, include_os),
+                name="caij-print-sync",
+                daemon=True,
+            ).start()
             tracker = server_response.get("rastreador") if isinstance(server_response, dict) else None
             sync_warning = isinstance(tracker, dict) and str(tracker.get("status") or "").lower() == "warning"
             message = server_response.get("mensagem") if isinstance(server_response, dict) else ""
@@ -480,6 +495,23 @@ class AppState:
                 self.save_runtime_data()
             self.add_log("erro", str(exc), payload["grade"], payload["obs"])
             return {"ok": False, "message": "Falha ao imprimir: {}".format(exc), "payload": payload, "state": self.public_state()}
+
+    def finish_print_in_background(self, payload, include_os):
+        tracker_payload = {
+            "osNumero": int(payload.get("os") or 0),
+            "grade": str(payload.get("grade") or ""),
+            "serial": str(payload.get("serial") or ""),
+            "observacao": str(payload.get("obs") or ""),
+        }
+        try:
+            self.request_server("/sincronizar-rastreador", method="POST", payload=tracker_payload, timeout=25)
+        except Exception as exc:
+            self.add_log("aviso", "Rastreador pendente: {}".format(exc), tracker_payload["grade"], tracker_payload["observacao"])
+        if include_os:
+            try:
+                self.sync_os()
+            except Exception:
+                pass
 
 
 def make_handler(app_state, stop_event):
@@ -513,6 +545,10 @@ def make_handler(app_state, stop_event):
                 return self.serve_file(app_state.ui_dir / "app.js")
             if self.path == "/portable.js":
                 return self.serve_file(app_state.ui_dir / "portable.js")
+            if self.path == "/storage.js":
+                return self.serve_file(app_state.ui_dir / "storage.js")
+            if self.path == "/serial-os.js":
+                return self.serve_file(app_state.ui_dir / "serial-os.js")
             if self.path == "/runtime-loader.js":
                 return self.serve_file(app_state.ui_dir / "runtime-loader.js")
             if self.path == "/caij-runtime.js":
@@ -526,8 +562,17 @@ def make_handler(app_state, stop_event):
                 return
             if self.path == "/logo.png":
                 return self.serve_file(app_state.core_dir / "caij-logo.png")
+            if self.path == "/notebook-illustrative.png":
+                return self.serve_file(app_state.ui_dir / "notebook-illustrative.png")
+            if self.path in ("/notebook-dell.png", "/notebook-hp.png", "/notebook-mac.png"):
+                return self.serve_file(app_state.ui_dir / self.path.lstrip("/"))
             if self.path == "/api/state":
                 return self.send_json(200, app_state.public_state())
+            if self.path == "/api/print-diagnostics":
+                try:
+                    return self.send_json(200, app_state.request_server("/diagnostico-impressao", timeout=6))
+                except Exception:
+                    return self.send_json(503, {"ok": False, "message": "Servidor CAIJ indisponivel. Verifique a conexao com o NAS."})
             if self.path == "/api/os-watch":
                 return self.send_json(200, app_state.consume_os_event())
             return self.send_json(404, {"ok": False, "message": "Nao encontrado"})
@@ -541,6 +586,8 @@ def make_handler(app_state, stop_event):
                     return self.send_json(200, app_state.update_info(request_data.get("info", {}), request_data.get("equipmentType")))
                 if self.path == "/api/sync-os":
                     return self.send_json(200, app_state.sync_os())
+                if self.path == "/api/os-by-serial":
+                    return self.send_json(200, app_state.lookup_os_by_serial(self.read_json().get("serial", "")))
                 if self.path == "/api/products":
                     return self.send_json(200, app_state.search_products(self.read_json().get("term", "")))
                 if self.path == "/api/create-os":

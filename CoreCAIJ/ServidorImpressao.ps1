@@ -7,6 +7,7 @@ param([switch]$NoFailurePrompt)
 # ================================================
 
 $porta      = 9100
+$script:caijServerSourcePath = $PSCommandPath
 $impressora = 'LABEL'
 $clientePadrao = 'CAIJ SERVICOS E COMERCIO LTDA'
 $clientePadraoId = 39509812
@@ -14,8 +15,9 @@ $almoxarifadoBancadaTecnicaId = 31196
 $tecnicosPermitidos = @('HYURI', 'HYRIDES', 'VITOR', 'LUCAS', 'ERICK', 'FELIPE')
 $mapaProdutosArquivo = Join-Path (Split-Path -Parent $PSCommandPath) 'mapa_produtos.json'
 $desktopUsuario = [Environment]::GetFolderPath('Desktop')
+$caijServerDataRoot = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'CAIJ\Servidor'
 $produtosCsvPadrao = Join-Path $desktopUsuario 'produtos_1019993.csv'
-$estadoOsArquivo = Join-Path (Split-Path -Parent $PSCommandPath) 'estado_os.json'
+$estadoOsArquivo = Join-Path $caijServerDataRoot 'Dados\estado_os.json'
 $altertagEnvArquivo = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'CAIJ\altertag.env'
 $altertagApiBaseUrlPadrao = 'https://api.vhsys.com/v2'
 $mutexOsName = 'Global\CAIJ_OS_MUTEX'
@@ -32,6 +34,8 @@ $script:vhsysProdutosBuscaCache = @{}
 $script:vhsysProdutosBuscaCacheTtlSec = 300
 $script:vhsysOrdensRecentesCache = @{}
 $script:vhsysOrdensRecentesCacheTtlSec = 8
+$script:vhsysOrdemPorNumeroCache = @{}
+$script:vhsysOrdemPorNumeroCacheTtlSec = 300
 $script:triagemQueue = New-Object System.Collections.ArrayList
 $script:triagemJobs = @{}
 $script:triagemLock = New-Object object
@@ -1043,6 +1047,109 @@ function Get-VhsysOrdensServicoRecentes {
     return $ordens
 }
 
+function Invoke-VhsysGetBatch {
+    param(
+        [Parameter(Mandatory=$true)][string[]]$Uris,
+        [Parameter(Mandatory=$true)]$Headers,
+        [int]$TimeoutSec = 15,
+        [int]$Concurrency = 4
+    )
+
+    if ($Uris.Count -eq 0) { return @() }
+    Add-Type -AssemblyName System.Net.Http
+    $client = New-Object System.Net.Http.HttpClient
+    $client.Timeout = [TimeSpan]::FromSeconds($TimeoutSec)
+    foreach ($name in $Headers.Keys) {
+        [void]$client.DefaultRequestHeaders.TryAddWithoutValidation([string]$name, [string]$Headers[$name])
+    }
+    $results = New-Object System.Collections.Generic.List[object]
+    try {
+        $batchSize = [Math]::Max(1, [Math]::Min(4, $Concurrency))
+        for ($start = 0; $start -lt $Uris.Count; $start += $batchSize) {
+            $pending = @()
+            for ($i = $start; $i -lt [Math]::Min($Uris.Count, $start + $batchSize); $i++) {
+                $pending += [pscustomobject]@{ Uri=$Uris[$i]; Task=$client.GetAsync($Uris[$i]) }
+            }
+            foreach ($request in $pending) {
+                $httpResponse = $null
+                try {
+                    $httpResponse = $request.Task.GetAwaiter().GetResult()
+                    $httpResponse.EnsureSuccessStatusCode() | Out-Null
+                    $body = $httpResponse.Content.ReadAsStringAsync().GetAwaiter().GetResult()
+                    $parsed = ConvertFrom-Json -InputObject $body -ErrorAction Stop
+                    Assert-VhsysSuccess -Response $parsed -Contexto 'API vhsys' | Out-Null
+                    $results.Add([pscustomobject]@{ Uri=$request.Uri; Response=$parsed; Error='' })
+                } catch {
+                    $results.Add([pscustomobject]@{ Uri=$request.Uri; Response=$null; Error=$_.Exception.Message })
+                } finally {
+                    if ($httpResponse) { $httpResponse.Dispose() }
+                }
+            }
+        }
+    } finally {
+        $client.Dispose()
+    }
+    return $results.ToArray()
+}
+
+function Find-VhsysOrdensBySerial {
+    param([Parameter(Mandatory=$true)][string]$Serial)
+
+    $target = ($Serial.Trim().ToUpperInvariant() -replace '[^A-Z0-9]', '')
+    if ($target.Length -lt 4 -or $target.Length -gt 80 -or $target -in @('NA', 'NONE', 'UNKNOWN', 'XXXXXX')) {
+        throw 'Informe uma serial valida para consultar as OS.'
+    }
+
+    $limit = 250
+    $cfg = Read-AltertagApiConfig
+    $headers = New-AltertagApiHeaders -AccessToken $cfg.AccessToken -SecretAccessToken $cfg.SecretAccessToken
+    $baseUri = '{0}/ordens-servico?limit={1}&offset={{0}}&lixeira=Nao&order=id_pedido&sort=desc' -f $cfg.ApiBaseUrl.TrimEnd('/'), $limit
+    $first = Invoke-RestMethod -Uri ($baseUri -f 0) -Method Get -Headers $headers -TimeoutSec 15 -ErrorAction Stop
+    Assert-VhsysSuccess -Response $first -Contexto 'Busca de OS por serial' | Out-Null
+    if ($null -eq $first.data) { throw 'Resposta da API sem lista de OS; consulta inconclusiva.' }
+    $responses = @($first)
+    $total = 0
+    try { $total = [int]$first.paging.total } catch {}
+    if ($total -gt ($limit * 200)) {
+        throw 'Historico de OS muito extenso para confirmar todas as correspondencias da serial.'
+    }
+    if ($total -gt $limit) {
+        $uris = @()
+        for ($offset = $limit; $offset -lt $total; $offset += $limit) { $uris += ($baseUri -f $offset) }
+        $pageOffset = $limit
+        foreach ($item in @(Invoke-VhsysGetBatch -Uris $uris -Headers $headers -TimeoutSec 15 -Concurrency 4)) {
+            if ($item.Error) { throw "Falha ao conferir todo o historico de OS: $($item.Error)" }
+            $expected = [Math]::Min($limit, $total - $pageOffset)
+            if ($null -eq $item.Response.data -or @($item.Response.data).Count -lt $expected) {
+                throw 'Historico de OS mudou durante a consulta; tente novamente antes de cadastrar.'
+            }
+            $responses += $item.Response
+            $pageOffset += $limit
+        }
+    } elseif ($total -eq 0 -and @($first.data).Count -eq $limit) {
+        # Contingencia para uma resposta sem total: nunca concluir que a serial e nova
+        # enquanto houver paginas nao verificadas.
+        for ($offset = $limit; $offset -lt ($limit * 200); $offset += $limit) {
+            $response = Invoke-RestMethod -Uri ($baseUri -f $offset) -Method Get -Headers $headers -TimeoutSec 15 -ErrorAction Stop
+            Assert-VhsysSuccess -Response $response -Contexto 'Busca de OS por serial' | Out-Null
+            if ($null -eq $response.data) { throw 'Resposta da API sem lista de OS; consulta inconclusiva.' }
+            $responses += $response
+            if (@($response.data).Count -lt $limit) { break }
+            if ($offset -ge ($limit * 199)) { throw 'Historico de OS muito extenso para confirmar todas as correspondencias da serial.' }
+        }
+    }
+    $matches = foreach ($response in $responses) {
+        $items = @($response.data | Where-Object {
+            $candidate = (([string]$_.garantia_ordem).Trim().ToUpperInvariant() -replace '[^A-Z0-9]', '')
+            $candidate -and $candidate -eq $target
+        })
+        if ($items.Count -gt 0) {
+            ConvertFrom-VhsysOrdensServico -Response ([pscustomobject]@{ data=$items })
+        }
+    }
+    return @($matches | Sort-Object -Property numero -Descending)
+}
+
 function Resolve-VhsysIdOrdem {
     param(
         [int]$IdOrdem = 0,
@@ -1052,16 +1159,47 @@ function Resolve-VhsysIdOrdem {
     if ($IdOrdem -gt 0) { return $IdOrdem }
     if ($OsNumero -lt 1) { throw 'Informe idOrdem ou osNumero.' }
 
+    $cacheKey = [string]$OsNumero
+    $cacheEntry = $script:vhsysOrdemPorNumeroCache[$cacheKey]
+    if ($cacheEntry -and ((Get-Date) - $cacheEntry.Em).TotalSeconds -lt $script:vhsysOrdemPorNumeroCacheTtlSec) {
+        return [int]$cacheEntry.IdOrdem
+    }
+
     # A API lista as OS por pagina e o id exibido ao usuario (id_pedido)
     # e diferente do id interno usado pela rota de detalhe (id_ordem).
-    # Uma janela de 250 cobre consultas manuais mais antigas sem transformar
-    # cada digitacao em uma varredura cara de todo o historico.
     $ordens = @(Get-VhsysOrdensServicoRecentes -Limit 250)
     $match = @($ordens | Where-Object { [int]$_.numero -eq $OsNumero } | Select-Object -First 1)
-    if (-not $match -or [int]$match[0].idOrdem -lt 1) {
-        throw "OS $('C{0:D6}' -f [int]$OsNumero) nao encontrada nas 250 ordens mais recentes da API vhsys."
+    if ($match -and [int]$match[0].idOrdem -gt 0) {
+        return [int]$match[0].idOrdem
     }
-    return [int]$match[0].idOrdem
+
+    $cfg = Read-AltertagApiConfig
+    $headers = New-AltertagApiHeaders -AccessToken $cfg.AccessToken -SecretAccessToken $cfg.SecretAccessToken
+    $limit = 250
+    $offset = 250
+    $maxPages = 200
+    for ($page = 1; $page -lt $maxPages; $page++) {
+        $uri = '{0}/ordens-servico?limit={1}&offset={2}&lixeira=Nao&order=id_pedido&sort=desc' -f $cfg.ApiBaseUrl.TrimEnd('/'), $limit, $offset
+        $resp = Invoke-RestMethod -Uri $uri -Method Get -Headers $headers -TimeoutSec 15 -ErrorAction Stop
+        $pagina = @(ConvertFrom-VhsysOrdensServico -Response $resp | ForEach-Object { $_ })
+        if ($pagina.Count -eq 0) { break }
+
+        $match = @($pagina | Where-Object { [int]$_.numero -eq $OsNumero } | Select-Object -First 1)
+        if ($match -and [int]$match[0].idOrdem -gt 0) {
+            $idEncontrado = [int]$match[0].idOrdem
+            $script:vhsysOrdemPorNumeroCache[$cacheKey] = [pscustomobject]@{ Em = Get-Date; IdOrdem = $idEncontrado }
+            return $idEncontrado
+        }
+
+        $numerosPagina = @($pagina | ForEach-Object { [int]$_.numero } | Where-Object { $_ -gt 0 })
+        if ($numerosPagina.Count -gt 0 -and ($numerosPagina | Measure-Object -Minimum).Minimum -lt $OsNumero) { break }
+        $offset += $pagina.Count
+        $total = 0
+        try { $total = [int]$resp.paging.total } catch {}
+        if (($total -gt 0 -and $offset -ge $total) -or $pagina.Count -lt $limit) { break }
+    }
+
+    throw "OS $('C{0:D6}' -f [int]$OsNumero) nao encontrada no historico da API vhsys."
 }
 
 function Get-VhsysOrdemServicoDetalhe {
@@ -1251,6 +1389,7 @@ function Search-VhsysProdutosCatalogo {
 
     $all = @()
     $lastErr = $null
+    $allUris = @()
     foreach ($q in $queries) {
         $enc = [System.Uri]::EscapeDataString($q)
         # Codigos AlterTag sao pesquisados diretamente pelo campo de codigo.
@@ -1258,7 +1397,7 @@ function Search-VhsysProdutosCatalogo {
         # E14, T14 e modelos semelhantes devem pesquisar a descricao. Apenas
         # formatos inequivocos de codigo operacional usam cod_produto sozinho.
         $isCodigo = ($q.Trim().ToUpperInvariant() -match '^(?:T\d{3,}(?:-+)?|[A-Z]\d{3,}-[A-Z0-9-]+|\d{2,}(?:[-_]\d+)+)$')
-        $uris = if ($isCodigo) {
+        $queryUris = if ($isCodigo) {
             @(('{0}/produtos?limit={1}&offset=0&lixeira=Nao&cod_produto={2}' -f $cfg.ApiBaseUrl.TrimEnd('/'), $limitSafe, $enc))
         } else {
             @(
@@ -1266,14 +1405,12 @@ function Search-VhsysProdutosCatalogo {
                 ('{0}/produtos?limit={1}&offset=0&lixeira=Nao&cod_produto={2}' -f $cfg.ApiBaseUrl.TrimEnd('/'), $limitSafe, $enc)
             )
         }
-        foreach ($uri in $uris) {
-            try {
-                $resp = Invoke-RestMethod -Uri $uri -Method Get -Headers $headers -TimeoutSec 12 -ErrorAction Stop
-                $all += @(ConvertFrom-VhsysProdutosCatalogo -Response $resp)
-            } catch {
-                $lastErr = $_.Exception.Message
-            }
-        }
+        $allUris += @($queryUris)
+    }
+    foreach ($item in @(Invoke-VhsysGetBatch -Uris $allUris -Headers $headers -TimeoutSec 12 -Concurrency 4)) {
+        if ($item.Error) { $lastErr = $item.Error; continue }
+        try { $all += @(ConvertFrom-VhsysProdutosCatalogo -Response $item.Response) }
+        catch { $lastErr = $_.Exception.Message }
     }
 
     $dedup = @{}
@@ -1473,9 +1610,13 @@ function Confirm-VhsysOrdemServicoLocalizacao {
         [Parameter(Mandatory=$true)]$Config,
         [Parameter(Mandatory=$true)][int]$IdOrdem,
         [Parameter(Mandatory=$true)][int]$IdPedido,
-        [Parameter(Mandatory=$true)]$OsPayload
+        [Parameter(Mandatory=$true)]$OsPayload,
+        $InitialResponse = $null
     )
 
+    # A resposta do POST pode confirmar a localizacao sem um GET extra.
+    # Quando nao traz esse campo, mantem todas as verificacoes anteriores.
+    if ($InitialResponse -and (Test-VhsysOrdemServicoLocalizacao -Response $InitialResponse -IdAlmoxarifado $almoxarifadoBancadaTecnicaId)) { return $true }
     $path = "/ordens-servico/{0}" -f $IdOrdem
     foreach ($tentativa in 1..2) {
         try {
@@ -1639,7 +1780,7 @@ function Add-VhsysProdutoNaOrdemServico {
         }
 
         # Sem nenhuma leitura valida, nao ha seguranca para repetir um POST aceito.
-        if (-not $envioFalhou -and -not $consultaConcluida) { break }
+        if (-not $consultaConcluida) { break }
         if ($tentativaEnvio -lt 3) { Start-Sleep -Milliseconds 800 }
     }
 
@@ -1728,7 +1869,7 @@ function New-VhsysOrdemServico {
     $idOrdem = [int]$osResp.data.id_ordem
     $idPedido = [int]$osResp.data.id_pedido
     if ($idOrdem -lt 1) { throw 'API vhsys nao retornou id_ordem ao criar OS.' }
-    $localizacaoConfirmada = [bool](Confirm-VhsysOrdemServicoLocalizacao -Config $cfg -IdOrdem $idOrdem -IdPedido $idPedido -OsPayload $osPayload)
+    $localizacaoConfirmada = [bool](Confirm-VhsysOrdemServicoLocalizacao -Config $cfg -IdOrdem $idOrdem -IdPedido $idPedido -OsPayload $osPayload -InitialResponse $osResp)
 
     # O cadastro da OS e o cadastro do produto usam endpoints separados no VHSYS.
     # Uma breve espera evita que o segundo endpoint receba uma ordem ainda em propagacao.
@@ -2738,8 +2879,8 @@ function Send-TextResponse {
 function Get-CaijMacUiDirectory {
     $candidates = @(
         (Join-Path $desktopUsuario '1 - CAIJ\CoreCAIJ\mac-ui'),
-        (Join-Path (Split-Path -Parent $PSCommandPath) 'CoreCAIJ\mac-ui'),
-        (Join-Path (Split-Path -Parent $PSCommandPath) 'mac-ui')
+        (Join-Path (Split-Path -Parent $script:caijServerSourcePath) 'CoreCAIJ\mac-ui'),
+        (Join-Path (Split-Path -Parent $script:caijServerSourcePath) 'mac-ui')
     )
     foreach ($candidate in $candidates) {
         if (Test-Path -LiteralPath (Join-Path $candidate 'index.html') -PathType Leaf) {
@@ -2752,7 +2893,8 @@ function Get-CaijMacUiDirectory {
 function Get-CaijUpdateDirectory {
     $candidates = @()
     if ($env:CAIJ_UPDATE_DIR) { $candidates += ([string]$env:CAIJ_UPDATE_DIR).Trim() }
-    $candidates += (Join-Path $PSScriptRoot 'atualizacoes')
+    $candidates += (Join-Path $caijServerDataRoot 'Atualizacoes')
+    $candidates += (Join-Path (Split-Path -Parent $script:caijServerSourcePath) 'atualizacoes')
     $candidates += (Join-Path ([Environment]::GetFolderPath('Desktop')) 'CAIJ-Atualizacoes')
     foreach ($candidate in $candidates) {
         if ($candidate -and (Test-Path -LiteralPath (Join-Path $candidate 'manifesto.json') -PathType Leaf)) { return $candidate }
@@ -2775,7 +2917,7 @@ function Send-HtmlResponse {
     }
 }
 
-$script:qrFichaDir = Join-Path $PSScriptRoot 'caij_qr_fichas'
+$script:qrFichaDir = Join-Path $caijServerDataRoot 'Fichas QR'
 
 function Save-QrFicha {
     param([Parameter(Mandatory = $true)] $Ficha)
@@ -2792,7 +2934,7 @@ function Save-QrFicha {
 function Publish-QrFicha {
     param([Parameter(Mandatory = $true)] $Ficha)
     $apiKey = [string]$env:CAIJ_LABEL_API_KEY
-    $keyPath = Join-Path $PSScriptRoot 'caij_ficha_api_key.txt'
+    $keyPath = Join-Path $caijServerDataRoot 'Credenciais\caij_ficha_api_key.txt'
     if (-not $apiKey -and (Test-Path -LiteralPath $keyPath)) {
         $apiKey = ([string](Get-Content -LiteralPath $keyPath -Raw)).Trim()
     }
@@ -2800,10 +2942,14 @@ function Publish-QrFicha {
         throw 'Chave da API publica de fichas nao encontrada.'
     }
 
-    $publicBaseUrl = if ($env:CAIJ_LABEL_PUBLIC_URL) {
+    # Transporte interno; a API continua devolvendo a URL HTTPS publica do QR.
+    # Nao repetir o POST em outro endereco apos timeout: pode ja estar persistido.
+    $publicBaseUrl = if ($env:CAIJ_LABEL_API_URL) {
+        ([string]$env:CAIJ_LABEL_API_URL).TrimEnd('/')
+    } elseif ($env:CAIJ_LABEL_PUBLIC_URL) {
         ([string]$env:CAIJ_LABEL_PUBLIC_URL).TrimEnd('/')
     } else {
-        'https://infocaij.com.br'
+        'http://127.0.0.1:4177'
     }
     try {
         $body = $Ficha | ConvertTo-Json -Depth 5 -Compress
@@ -2841,7 +2987,7 @@ function Sync-InfoNotebookServiceOrderTracker {
 
     $apiKey = [string]$env:CAIJ_INFONOTEBOOK_API_KEY
     if (-not $apiKey) { $apiKey = [string]$env:CAIJ_LABEL_API_KEY }
-    $keyPath = Join-Path $PSScriptRoot 'caij_ficha_api_key.txt'
+    $keyPath = Join-Path $caijServerDataRoot 'Credenciais\caij_ficha_api_key.txt'
     if (-not $apiKey -and (Test-Path -LiteralPath $keyPath)) {
         $apiKey = ([string](Get-Content -LiteralPath $keyPath -Raw)).Trim()
     }
@@ -2902,7 +3048,7 @@ function Get-QrFichaPage {
     }
     $rows = New-Object System.Collections.Generic.List[string]
     foreach ($item in @(
-        @('MODELO', $ficha.modelo), @('SERIAL', $ficha.serial), @('OS', $ficha.os), @('GRADE', $ficha.grade)
+        @('MODELO', $ficha.modelo), @('SERIAL', $ficha.serial), @('RASTREADOR', $ficha.os), @('GRADE', $ficha.grade)
     )) {
         if ([string]$item[1]) { $rows.Add("<div class='row'><span>$(ConvertTo-HtmlSafe $item[0])</span><strong>$(ConvertTo-HtmlSafe $item[1])</strong></div>") }
     }
@@ -3012,9 +3158,11 @@ function Get-CaijLabelLogoTsplData {
     return [System.Text.Encoding]::GetEncoding(850).GetString($bytes)
 }
 
-while ($listener.IsListening) {
+function Invoke-CaijHttpRequest {
+    param([System.Net.HttpListenerContext]$Context)
+    # Mantem os continues das rotas dentro de um escopo de requisicao unico.
+    do {
     try {
-        $context  = $listener.GetContext()
         $request  = $context.Request
         $response = $context.Response
         $horario  = Get-Date -Format 'HH:mm:ss'
@@ -3151,12 +3299,45 @@ while ($listener.IsListening) {
             $json = (@{
                 status='ok'
                 mensagem='Servidor CAIJ ativo'
-                versao='v6.18-layout-termico'
+                versao='v6.19-layout-termico-performance'
+                processamento='consultas-e-operacoes-isoladas'
                 modoImpressao='spooler-confirmado'
                 servidorIp=[string]$script:caijServerIp
                 porta=[int]$porta
                 url=("http://{0}:{1}" -f $script:caijServerIp, $porta)
             } | ConvertTo-Json -Compress)
+            $response.StatusCode = 200
+
+        } elseif ($metodo -eq 'GET' -and $rota -eq '/diagnostico-impressao') {
+            # Diagnostico somente de leitura: nao cria ficha QR nem envia trabalho ao spooler.
+            $qrBase = if ($env:CAIJ_LABEL_API_URL) { ([string]$env:CAIJ_LABEL_API_URL).TrimEnd('/') }
+                elseif ($env:CAIJ_LABEL_PUBLIC_URL) { ([string]$env:CAIJ_LABEL_PUBLIC_URL).TrimEnd('/') }
+                else { 'http://127.0.0.1:4177' }
+            $qr = @{ status = 'indisponivel'; detalhe = 'API do QR nao respondeu.' }
+            try {
+                Invoke-RestMethod -Method Get -Uri "$qrBase/api/health" -TimeoutSec 3 -ErrorAction Stop | Out-Null
+                $qr.status = 'disponivel'
+                $qr.detalhe = 'API do QR respondeu.'
+            } catch {
+                $qr.detalhe = 'API do QR nao respondeu em ate 3 segundos.'
+            }
+            $printer = @{ status = 'indisponivel'; detalhe = 'Impressora LABEL nao encontrada.' }
+            try {
+                $labelPrinter = Get-Printer -Name 'LABEL' -ErrorAction Stop
+                if ([string]$labelPrinter.PrinterStatus -eq 'Normal') {
+                    $printer.status = 'disponivel'
+                    $printer.detalhe = 'Fila LABEL disponivel; saida fisica nao verificada.'
+                } else {
+                    $printer.detalhe = "Fila LABEL: $($labelPrinter.PrinterStatus)."
+                }
+            } catch {}
+            $json = (@{
+                status = 'ok'
+                servidor = @{ status = 'disponivel'; detalhe = 'Servidor CAIJ respondeu.' }
+                qr = $qr
+                impressora = $printer
+                verificadoEm = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+            } | ConvertTo-Json -Depth 4 -Compress)
             $response.StatusCode = 200
 
         } elseif ($metodo -eq 'GET' -and $rota -eq '/status-os-local') {
@@ -3279,6 +3460,18 @@ while ($listener.IsListening) {
                 $response.StatusCode = 500
             }
 
+        } elseif ($metodo -eq 'GET' -and $rota -eq '/os-por-serial') {
+            try {
+                $serial = ([string]$request.QueryString['serial']).Trim()
+                $ordens = @(Find-VhsysOrdensBySerial -Serial $serial)
+                $json = (@{ status='ok'; fonte='vhsys_api'; serial=$serial; ordens=$ordens } | ConvertTo-Json -Depth 6 -Compress)
+                $response.StatusCode = 200
+            } catch {
+                Write-Host "[$horario] Erro /os-por-serial: $($_.Exception.Message)"
+                $json = (@{ status='erro'; mensagem=$_.Exception.Message; ordens=@() } | ConvertTo-Json -Compress)
+                $response.StatusCode = 500
+            }
+
         } elseif ($metodo -eq 'GET' -and $rota -eq '/os-detalhe') {
             try {
                 $idOrdem = 0
@@ -3330,6 +3523,21 @@ while ($listener.IsListening) {
                     $json = (@{ status='erro'; mensagem=("Falha ao registrar status na OS: " + $_.Exception.Message) } | ConvertTo-Json -Compress)
                     $response.StatusCode = 500
                 }
+            }
+
+        } elseif ($metodo -eq 'POST' -and $rota -eq '/sincronizar-rastreador') {
+            $dados = Get-JsonBody -Request $request
+            if (-not $dados) {
+                $json = '{"status":"erro","mensagem":"Body JSON obrigatorio"}'
+                $response.StatusCode = 400
+            } else {
+                $rastreador = Sync-InfoNotebookServiceOrderTracker `
+                    -OsNumero ([int]$dados.osNumero) `
+                    -Grade ([string]$dados.grade) `
+                    -Serial ([string]$dados.serial) `
+                    -Observacao ([string]$dados.observacao)
+                $json = (@{ status='ok'; rastreador=$rastreador } | ConvertTo-Json -Depth 4 -Compress)
+                $response.StatusCode = 200
             }
 
         } elseif ($metodo -eq 'GET' -and $rota -eq '/ultima-os') {
@@ -3403,6 +3611,10 @@ while ($listener.IsListening) {
                             } else {
                                 Write-Host "[$horario] API sem produto; tentando exportacao local: $termoBusca"
                                 $busca = Search-ProdutosExport -Termo $termoBusca
+                                if (-not $busca.ok) {
+                                    $busca.mensagem = "Nenhum produto encontrado para '$termoBusca' no catalogo AlterTag atual. Confira o cadastro do produto ou tente outro termo."
+                                    $busca.fonte = 'vhsys_api+csv'
+                                }
                             }
                         }
                         $busca = Normalize-BuscaProdutos -Busca $busca
@@ -3705,7 +3917,7 @@ while ($listener.IsListening) {
                 $tspl += "CLS`r`n"
                 $tspl += "BOX 12,20,628,220,2`r`n"
                 $tspl += "TEXT 22,24,`"3`",0,1,1,`"CAIJ INFORMATICA`"`r`n"
-                $tspl += "TEXT 22,62,`"4`",0,2,2,`"OS # $osCodigo`"`r`n"
+                $tspl += "TEXT 22,62,`"3`",0,1,1,`"RASTREADOR # $osCodigo`"`r`n"
                 if ($serialTxt) { $tspl += "TEXT 22,134,`"2`",0,1,1,`"SERIAL: $serialTxt`"`r`n" }
                 if ($modeloTxt) { $tspl += "TEXT 22,158,`"2`",0,1,1,`"$modeloTxt`"`r`n" }
                 $tspl += "BAR 16,218,612,4`r`n"
@@ -3714,10 +3926,10 @@ while ($listener.IsListening) {
                 $printRes = Send-TsplToPrinter -Tspl $tspl -Prefix 'caij_tspl_os'
 
                 if ($printRes.ok) {
-                    $json = '{"status":"ok","mensagem":"OS impressa com sucesso"}'
+                    $json = '{"status":"ok","mensagem":"Rastreador impresso com sucesso"}'
                     $response.StatusCode = 200
                 } else {
-                    $json = (@{ status='erro'; mensagem='Falha ao enviar OS para impressora'; detalhe=[string]$printRes.saida; exitCode=[int]$printRes.exitCode } | ConvertTo-Json -Compress)
+                    $json = (@{ status='erro'; mensagem='Falha ao enviar rastreador para impressora'; detalhe=[string]$printRes.saida; exitCode=[int]$printRes.exitCode } | ConvertTo-Json -Compress)
                     $response.StatusCode = 500
                 }
             }
@@ -3744,32 +3956,11 @@ while ($listener.IsListening) {
             }
             function Short-Cpu($s) {
                 $t = Limpar $s '@'
-                if ($t -match '(?i)\b(i[3579])(?:[- ]?)(\d{4,5})') {
+                if ($t -match '(?i)\b(i[3579])(?:[- ]?)(\d{4,5})([A-Z]{0,3}\d{0,2})\b') {
                     $prefix = $matches[1].ToLowerInvariant()
                     $modelo = [string]$matches[2]
-                    $gen = $null
-                    if ($modelo.Length -ge 4) {
-                        $primeirosDois = [int]$modelo.Substring(0, 2)
-                        $primeiro = [int]$modelo.Substring(0, 1)
-                        if ($primeirosDois -ge 10 -and $primeirosDois -le 19) {
-                            $gen = $primeirosDois
-                        } elseif ($primeiro -ge 2 -and $primeiro -le 9) {
-                            $gen = $primeiro
-                        }
-                    }
-                    if ($gen) {
-                        $mod100 = $gen % 100
-                        $sufixo = 'th'
-                        if ($mod100 -lt 11 -or $mod100 -gt 13) {
-                            switch ($gen % 10) {
-                                1 { $sufixo = 'st' }
-                                2 { $sufixo = 'nd' }
-                                3 { $sufixo = 'rd' }
-                            }
-                        }
-                        return "$prefix $gen$sufixo"
-                    }
-                    return $prefix
+                    $variant = [string]$matches[3]
+                    return "$prefix-$modelo$variant"
                 }
                 return $t
             }
@@ -3821,17 +4012,19 @@ while ($listener.IsListening) {
             }
             function Short-Disco($s) {
                 $t = Limpar $s
-                $tipo = if ($t -match '(?i)\bSSD\b|NVME|M\.2') { 'SSD' } elseif ($t -match '(?i)\b(HDD|HD)\b') { 'HDD' } else { 'DISCO' }
-                if ($t -match '(?i)\b(931|1000|1024)GB\b') { return "1TB $tipo" }
-                if ($t -match '(?i)\b(476|480|500|512)GB\b') { return "512GB $tipo" }
-                if ($t -match '(?i)\b(238|240|250|256)GB\b') { return "256GB $tipo" }
-                if ($t -match '(?i)\b(119|120|128)GB\b') { return "128GB $tipo" }
-                if ($t -match '(?i)\b(931|1000|1024)\b') { return "1TB $tipo" }
-                if ($t -match '(?i)\b(476|480|500|512)\b') { return "512GB $tipo" }
-                if ($t -match '(?i)\b(238|240|250|256)\b') { return "256GB $tipo" }
-                if ($t -match '(?i)\b(119|120|128)\b') { return "128GB $tipo" }
-                if ($t.Length -gt 28) { return $t.Substring(0, 28) }
-                return $t
+                $parts = foreach ($part in ($t -split '\s*\+\s*')) {
+                    $part = $part.Trim()
+                    if (-not $part) { continue }
+                    $tipo = if ($part -match '(?i)\bSSD\b|NVME|M\.2') { 'SSD' } elseif ($part -match '(?i)\b(HDD|HD)\b') { 'HDD' } else { 'DISCO' }
+                    $size = if ($part -match '(?i)\b(931|1000|1024)GB\b') { '1TB' }
+                        elseif ($part -match '(?i)\b(1800|2000|2048)GB\b') { '2TB' }
+                        elseif ($part -match '(?i)\b(238)GB\b') { '256GB' }
+                        elseif ($part -match '(?i)\b(476)GB\b') { '512GB' }
+                        elseif ($part -match '(?i)\b(\d+(?:\.\d+)?)\s*(TB|GB)\b') { "$($matches[1])$($matches[2].ToUpperInvariant())" }
+                        else { '' }
+                    if ($size) { "$size $tipo" } else { $part }
+                }
+                return ($parts -join ' + ')
             }
             function Short-DiscoManual($s) {
                 $t = Limpar $s
@@ -3843,6 +4036,20 @@ while ($listener.IsListening) {
                 if ($t.Length -le $maxLen) { return $t }
                 if ($maxLen -le 3) { return $t.Substring(0, $maxLen) }
                 return $t.Substring(0, $maxLen - 3) + '...'
+            }
+            function Get-DiskLabelLines($s) {
+                $items = @(([string]$s -split '\s*\+\s*') | Where-Object { $_.Trim() })
+                if ($items.Count -le 1) { return @((Fit-TsplText $s 16)) }
+                $lines = @('')
+                foreach ($item in $items) {
+                    $next = if ($lines[-1]) { "$($lines[-1]) + $item" } else { $item }
+                    if ($next.Length -gt 27 -and $lines[-1]) { $lines += $item }
+                    else { $lines[-1] = $next }
+                }
+                if ($lines.Count -gt 2) {
+                    return @((Fit-TsplText $lines[0] 27), ((Fit-TsplText $lines[1] 21) + ' +QR'))
+                }
+                return @($lines | ForEach-Object { Fit-TsplText $_ 27 })
             }
             function Format-QrValue($s, [int]$maxLen) {
                 $t = Limpar $s '/,:%'
@@ -4048,7 +4255,7 @@ while ($listener.IsListening) {
                     $tspl += "BARCODE 22,136,`"128`",16,0,0,1,2,`"$serialBar`"`r`n"
                 }
                 $tspl += "BAR 430,82,2,76`r`n"
-                $tspl += "TEXT 446,86,`"2`",0,1,1,`"ORDEM DE SERV.`"`r`n"
+                $tspl += "TEXT 446,86,`"2`",0,1,1,`"RASTREADOR`"`r`n"
                 $tspl += "TEXT 446,112,`"4`",0,1,1,`"$osCodigo`"`r`n"
             } else {
                 $tspl += "TEXT 22,86,`"2`",0,1,1,`"SERIAL`"`r`n"
@@ -4170,7 +4377,7 @@ while ($listener.IsListening) {
                 foreach ($desktopSpec in @(
                     @('CPU', (Fit-TsplText $cpu 16)),
                     @('RAM', (Fit-TsplText $ramMods 16)),
-                    @('DISCO', (Fit-TsplText $disco 16)),
+                    @('DISCO', $disco),
                     @('GPU', (Format-GpuEtiqueta $gpu))
                 )) {
                     $desktopLabel = [string]$desktopSpec[0]
@@ -4179,14 +4386,22 @@ while ($listener.IsListening) {
                     $tspl += "TEXT 22,$specY,`"1`",0,1,1,`"$desktopLabel`"`r`n"
                     $desktopFont = '2'
                     $desktopValueY = $specY - 3
-                    $tspl += "TEXT 76,$desktopValueY,`"$desktopFont`",0,1,1,`"$desktopValue`"`r`n"
+                    if ($desktopLabel -eq 'DISCO' -and $desktopValue -match '\+') {
+                        $diskLines = @(Get-DiskLabelLines $desktopValue)
+                        for ($lineIndex = 0; $lineIndex -lt $diskLines.Count; $lineIndex++) {
+                            $tspl += "TEXT 76,$($desktopValueY + $lineIndex * 11),`"1`",0,1,1,`"$($diskLines[$lineIndex])`"`r`n"
+                        }
+                    } else {
+                        $desktopValue = Fit-TsplText $desktopValue 16
+                        $tspl += "TEXT 76,$desktopValueY,`"$desktopFont`",0,1,1,`"$desktopValue`"`r`n"
+                    }
                     $tspl += "BAR 20,$($specY + 22),282,1`r`n"
                     $specY += 30
                 }
             } else {
                 $cpuInfo = Fit-TsplText $cpu 16
                 $ramInfo = Fit-TsplText $ramMods 16
-                $discoInfo = Fit-TsplText $disco 16
+                $discoInfo = $disco
                 $gpuInfo = Format-GpuEtiqueta $gpu
                 $batInfo = Fit-TsplText $bateriaQualidade 20
 
@@ -4202,7 +4417,15 @@ while ($listener.IsListening) {
                 $tspl += "BAR 20,$($specY + 22),282,1`r`n"
                 $specY += $specStep
                 $tspl += "TEXT 22,$specY,`"1`",0,1,1,`"DISCO`"`r`n"
-                $tspl += "TEXT 76,$($specY - 3),`"2`",0,1,1,`"$discoInfo`"`r`n"
+                if ($discoInfo -match '\+') {
+                    $diskLines = @(Get-DiskLabelLines $discoInfo)
+                    for ($lineIndex = 0; $lineIndex -lt $diskLines.Count; $lineIndex++) {
+                        $tspl += "TEXT 76,$($specY - 3 + $lineIndex * 11),`"1`",0,1,1,`"$($diskLines[$lineIndex])`"`r`n"
+                    }
+                } else {
+                    $discoInfo = Fit-TsplText $discoInfo 16
+                    $tspl += "TEXT 76,$($specY - 3),`"2`",0,1,1,`"$discoInfo`"`r`n"
+                }
                 $tspl += "BAR 20,$($specY + 22),282,1`r`n"
                 $specY += $specStep
                 $tspl += "TEXT 22,$specY,`"1`",0,1,1,`"GPU`"`r`n"
@@ -4247,21 +4470,8 @@ while ($listener.IsListening) {
             if ($printRes.ok) {
                 Write-Host "[$horario] Etiqueta enviada com sucesso!"
                 Write-Host "[$horario] QR enviado: $qrPayload"
-                $osTrackerNumero = if ($osNum) { [int]$osNum } else { 0 }
-                $rastreador = Sync-InfoNotebookServiceOrderTracker `
-                    -OsNumero $osTrackerNumero `
-                    -Grade $grade `
-                    -Serial $serial `
-                    -Observacao (Format-ObservacaoEtiqueta $obsQr)
-                $mensagemImpressao = if ($rastreador.status -eq 'updated') {
-                    'Impresso com sucesso e rastreador atualizado.'
-                } elseif ($rastreador.status -eq 'unchanged') {
-                    'Impresso com sucesso; rastreador ja estava atualizado.'
-                } elseif ($rastreador.status -eq 'warning') {
-                    "Impresso com sucesso. Rastreador nao atualizado: $($rastreador.mensagem)"
-                } else {
-                    'Impresso com sucesso'
-                }
+                $rastreador = @{ status='pending'; mensagem='Sincronizacao do rastreador iniciada em segundo plano.' }
+                $mensagemImpressao = 'Etiqueta enviada a impressora. Sincronizando rastreador em segundo plano.'
                 $json = (@{ status='ok'; mensagem=$mensagemImpressao; fichaUrl=$qrPayload; rastreador=$rastreador } | ConvertTo-Json -Depth 4 -Compress)
                 $response.StatusCode = 200
             } else {
@@ -4288,9 +4498,92 @@ while ($listener.IsListening) {
             } catch {}
         }
     }
+    } while ($false)
 }
 
-$listener.Stop()
+function New-CaijRequestPool {
+    param([int]$Workers = 1)
+    $initial = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
+    # Cada worker possui caches privados. Somente o listener e os valores de
+    # configuracao sao compartilhados; filas legadas permanecem na thread principal.
+    foreach ($name in @('porta','impressora','clientePadrao','clientePadraoId','almoxarifadoBancadaTecnicaId',
+        'tecnicosPermitidos','mapaProdutosArquivo','desktopUsuario','caijServerDataRoot','produtosCsvPadrao',
+        'estadoOsArquivo','altertagEnvArquivo','altertagApiBaseUrlPadrao','mutexOsName','braveDebugPort',
+        'braveDebugPortFallback','braveAutomationProfile','caijServerIp','qrFichaDir','listener','caijServerSourcePath')) {
+        $value = Get-Variable -Name $name -ValueOnly -ErrorAction SilentlyContinue
+        $initial.Variables.Add([System.Management.Automation.Runspaces.SessionStateVariableEntry]::new($name, $value, 'CAIJ request configuration'))
+    }
+    $serverAst = [System.Management.Automation.Language.Parser]::ParseFile($script:caijServerSourcePath, [ref]$null, [ref]$null)
+    foreach ($definition in $serverAst.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] }, $false)) {
+        $body = $definition.Body.Extent.Text
+        $initial.Commands.Add([System.Management.Automation.Runspaces.SessionStateFunctionEntry]::new($definition.Name, $body.Substring(1, $body.Length - 2)))
+    }
+    $pool = [runspacefactory]::CreateRunspacePool(1, $Workers, $initial, $Host)
+    $pool.Open()
+    return $pool
+}
+
+$readPool = New-CaijRequestPool -Workers 2
+$mutationPool = New-CaijRequestPool -Workers 1
+$printPool = New-CaijRequestPool -Workers 1
+$syncPool = New-CaijRequestPool -Workers 1
+$requests = New-Object System.Collections.ArrayList
+$requestCode = @'
+param($context)
+if (-not $script:requestWorkerInitialized) {
+$script:vhsysProdutosBuscaCache = @{}
+$script:vhsysProdutosBuscaCacheTtlSec = 300
+$script:vhsysOrdensRecentesCache = @{}
+$script:vhsysOrdensRecentesCacheTtlSec = 8
+$script:vhsysOrdemPorNumeroCache = @{}
+$script:vhsysOrdemPorNumeroCacheTtlSec = 300
+$script:requestWorkerInitialized = $true
+}
+$elapsed = [Diagnostics.Stopwatch]::StartNew()
+Invoke-CaijHttpRequest -Context $context
+Write-Host ('[PERF] {0} {1} {2}ms' -f $context.Request.HttpMethod, $context.Request.Url.AbsolutePath, $elapsed.ElapsedMilliseconds)
+'@
+try {
+    $accept = $listener.GetContextAsync()
+    while ($listener.IsListening) {
+        foreach ($work in @($requests)) {
+            if ($work.Handle.IsCompleted) {
+                try { $work.PowerShell.EndInvoke($work.Handle) | Out-Null }
+                catch { Write-Warning "Worker CAIJ: $($_.Exception.Message)" }
+                finally { $work.PowerShell.Dispose(); [void]$requests.Remove($work) }
+            }
+        }
+        if (-not $accept.Wait(100)) { continue }
+        $context = $accept.Result
+        $accept = $listener.GetContextAsync()
+        $route = $context.Request.Url.AbsolutePath
+        # Rotas de automacao/filas locais usam estado compartilhado legado.
+        if ($route -match '^/(mac/|cadastrar-triagem|triagem)' -or $route -eq '/abrir-altertag' -or
+            ($context.Request.HttpMethod -eq 'GET' -and $route -in @('/status','/status-os-local'))) {
+            Invoke-CaijHttpRequest -Context $context
+            continue
+        }
+        if ($requests.Count -ge 32) {
+            $context.Response.StatusCode = 503
+            Send-JsonResponse -Response $context.Response -Json '{"status":"erro","mensagem":"Servidor ocupado. Aguarde antes de enviar uma nova operacao."}'
+            continue
+        }
+        $worker = [powershell]::Create()
+        $worker.RunspacePool = if ($context.Request.HttpMethod -in @('GET','OPTIONS')) { $readPool }
+            elseif ($route -in @('/imprimir','/imprimir-os','/imprimir-garantia')) { $printPool }
+            elseif ($route -eq '/sincronizar-rastreador') { $syncPool }
+            else { $mutationPool }
+        [void]$worker.AddScript($requestCode).AddArgument($context)
+        [void]$requests.Add(@{ PowerShell=$worker; Handle=$worker.BeginInvoke() })
+    }
+} finally {
+    $listener.Stop()
+    foreach ($work in @($requests)) { try { $work.PowerShell.Stop(); $work.PowerShell.Dispose() } catch {} }
+    $readPool.Close(); $readPool.Dispose()
+    $mutationPool.Close(); $mutationPool.Dispose()
+    $printPool.Close(); $printPool.Dispose()
+    $syncPool.Close(); $syncPool.Dispose()
+}
 Write-Host 'Servidor parado.'
 
 

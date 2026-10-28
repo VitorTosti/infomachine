@@ -62,7 +62,7 @@ function Set-CaijLauncherVisibility {
     param([string]$AppRoot)
     foreach ($relative in @(
         '.git', 'CoreCAIJ', '.gitattributes', '.gitignore', '.hidden',
-        'InfoNotebook.bat', 'InfoNotebook.vbs', 'TestarNotebook.bat', 'TestarNotebook.vbs'
+        'InfoNotebook.vbs', 'TestarNotebook.bat', 'TestarNotebook.vbs'
     )) {
         $path = Join-Path $AppRoot $relative
         if (Test-Path -LiteralPath $path) {
@@ -70,7 +70,7 @@ function Set-CaijLauncherVisibility {
             $item.Attributes = $item.Attributes -bor [IO.FileAttributes]::Hidden
         }
     }
-    foreach ($relative in @('InfoNotebook.lnk', 'InfoNotebookMac.command')) {
+    foreach ($relative in @('InfoNotebook.bat', 'InfoNotebook.lnk', 'InfoNotebookMac.command')) {
         $path = Join-Path $AppRoot $relative
         if (Test-Path -LiteralPath $path) {
             $item = Get-Item -LiteralPath $path -Force
@@ -88,6 +88,11 @@ function New-CaijWindowsShortcut {
     $shortcut = $shell.CreateShortcut($shortcutPath)
     $shortcut.TargetPath = Join-Path $env:WINDIR 'System32\wscript.exe'
     $shortcut.Arguments = '//B //Nologo "' + $vbsPath + '"'
+    $startupPath = Join-Path $AppRoot 'CoreCAIJ\AbrirInfoNotebook.ps1'
+    if (Test-Path -LiteralPath $startupPath) {
+        $shortcut.TargetPath = Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
+        $shortcut.Arguments = '-NoLogo -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File "' + $startupPath + '"'
+    }
     $shortcut.WorkingDirectory = $AppRoot
     $shortcut.IconLocation = (Join-Path $env:WINDIR 'System32\imageres.dll') + ',11'
     $shortcut.Save()

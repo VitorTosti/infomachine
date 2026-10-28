@@ -1,6 +1,7 @@
-param()
+﻿param([string]$DeviceOutput = '')
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'WindowsStorage.ps1')
 
 # Preserva o pre-check do InfoNotebook classico antes de abrir a interface web.
 # Em equipamentos que nao sao Lenovo, ou cuja tecla ja esta corrigida, a
@@ -40,7 +41,7 @@ try {
     $runLenovoPreflight = $true
 }
 
-if ($runLenovoPreflight) {
+if ($runLenovoPreflight -and -not $DeviceOutput) {
     if (-not (Test-Path -LiteralPath $lenovoPreflightPath -PathType Leaf)) {
         Add-Type -AssemblyName System.Windows.Forms
         [System.Windows.Forms.MessageBox]::Show(
@@ -77,7 +78,7 @@ function Get-FirstCimInstance {
 function Get-CaijServer {
     $savedPath = Join-Path $PSScriptRoot 'caij_servidor_url.txt'
     $saved = if (Test-Path -LiteralPath $savedPath) { ([string](Get-Content -LiteralPath $savedPath -Raw)).Trim().TrimEnd('/') } else { '' }
-    $candidates = @($saved, 'http://INFOCAIJ:9100', 'http://192.168.15.11:9100') | Where-Object { $_ } | Select-Object -Unique
+    $candidates = @($saved, 'http://NAS-CAIJ:9100', 'http://192.168.15.200:9100', 'http://INFOCAIJ:9100', 'http://192.168.15.11:9100') | Where-Object { $_ } | Select-Object -Unique
     foreach ($candidate in $candidates) {
         try {
             $status = Invoke-RestMethod -Uri "$candidate/status" -TimeoutSec 2
@@ -94,6 +95,24 @@ function ConvertTo-MarketedStorage {
     $marketed = $sizes | Sort-Object { [math]::Abs([double]$_ - $SizeGb) } | Select-Object -First 1
     $capacity = if ([int]$marketed -ge 1024) { "$([int]$marketed / 1024)TB" } else { "$marketed`GB" }
     return "$capacity $Kind".Trim()
+}
+
+function ConvertTo-MarketedMemory {
+    param([double]$SizeGb)
+    if ($SizeGb -lt 1) { return 0 }
+    $sizes = @(2, 4, 6, 8, 12, 16, 24, 32, 48, 64, 96, 128)
+    return [int]($sizes | Sort-Object { [math]::Abs([double]$_ - $SizeGb) } | Select-Object -First 1)
+}
+
+function Get-AppleStorageFromModelNumber {
+    param([string]$ModelNumber)
+    $model = (([string]$ModelNumber).Trim().ToUpperInvariant() -replace '[^A-Z0-9]', '')
+    if ($model -match '^([A-Z0-9]{5})') { $model = [string]$Matches[1] }
+    $knownCapacity = @{
+        'MK473'='64GB'
+    }
+    if ($knownCapacity.ContainsKey($model)) { return [string]$knownCapacity[$model] }
+    return ''
 }
 
 function Invoke-CaijUsbTool {
@@ -167,14 +186,25 @@ function Get-Windows3uToolsInfo {
     $serial = ([string]$values['SerialNumber']).Trim()
     $imei = (([string]$values['InternationalMobileEquipmentIdentity']) -replace '[^0-9]', '')
     $udid = ([string]$values['UniqueDeviceID']).Trim()
-    if (-not $serial -or $serial -ine $currentSerial -or $imei.Length -ne 15) { throw 'Atualize a tela Informações do aparelho no 3uTools e tente novamente.' }
+    $isIpadWithoutImei = $productType -match '^iPad' -and $imei.Length -eq 0
+    if (-not $serial -or $serial -ine $currentSerial -or ($imei.Length -ne 15 -and -not $isIpadWithoutImei)) {
+        throw 'Atualize a tela Informacoes do aparelho no 3uTools e tente novamente.'
+    }
 
     $storage = ''
-    try {
-        $storageRaw = Invoke-CaijUsbTool -FilePath $infoExe -Arguments ('-u "{0}" -q com.apple.disk_usage -k TotalDataCapacity' -f ($udid -replace '"',''))
-        $bytes = @([regex]::Matches($storageRaw, '(?<!\d)\d{8,15}(?!\d)') | ForEach-Object { [double]$_.Value } | Sort-Object -Descending) | Select-Object -First 1
-        if ($bytes -gt 8GB) { $storage = (ConvertTo-MarketedStorage -SizeGb ([double]$bytes / 1GB) -Kind '').Trim() }
-    } catch {}
+    foreach ($storageKey in @('TotalDiskCapacity', 'TotalDataCapacity')) {
+        try {
+            $storageRaw = Invoke-CaijUsbTool -FilePath $infoExe -Arguments ('-u "{0}" -q com.apple.disk_usage -k {1}' -f ($udid -replace '"',''), $storageKey)
+            $bytes = @([regex]::Matches($storageRaw, '(?<!\d)\d{8,15}(?!\d)') | ForEach-Object { [double]$_.Value } | Sort-Object -Descending) | Select-Object -First 1
+            if ($bytes -gt 8GB) {
+                $storage = (ConvertTo-MarketedStorage -SizeGb ([double]$bytes / 1GB) -Kind '').Trim()
+                break
+            }
+        } catch {}
+    }
+    if (-not $storage) {
+        $storage = Get-AppleStorageFromModelNumber -ModelNumber ([string]$values['ModelNumber'])
+    }
 
     $batteryText = ''
     $cycles = 0
@@ -243,9 +273,17 @@ function Send-LocalUiFile {
         '/style.css' = @('style.css', 'text/css; charset=utf-8')
         '/app.js' = @('app.js', 'text/javascript; charset=utf-8')
         '/portable.js' = @('portable.js', 'text/javascript; charset=utf-8')
+        '/storage.js' = @('storage.js', 'text/javascript; charset=utf-8')
+        '/observation.js' = @('observation.js', 'text/javascript; charset=utf-8')
+        '/serial-os.js' = @('serial-os.js', 'text/javascript; charset=utf-8')
         '/runtime-loader.js' = @('runtime-loader.js', 'text/javascript; charset=utf-8')
         '/caij-runtime.js' = @('caij-runtime.js', 'text/javascript; charset=utf-8')
         '/logo.png' = @('..\caij-logo.png', 'image/png')
+        '/app-icon.svg' = @('app-icon.svg', 'image/svg+xml')
+        '/notebook-illustrative.png' = @('notebook-illustrative.png', 'image/png')
+        '/notebook-dell.png' = @('notebook-dell.png', 'image/png')
+        '/notebook-hp.png' = @('notebook-hp.png', 'image/png')
+        '/notebook-mac.png' = @('notebook-mac.png', 'image/png')
     }
     if (-not $files.ContainsKey($route)) { return $false }
     $entry = $files[$route]
@@ -319,31 +357,118 @@ function Get-WindowsBatterySummary {
     return ($parts -join ' | ')
 }
 
+function Get-PreferredWindowsModelName {
+    param(
+        [string]$Manufacturer,
+        [string[]]$Candidates
+    )
+
+    $manufacturerName = ([string]$Manufacturer).Trim()
+    if ($manufacturerName -match '(?i)^Dell(?:\s+Inc\.?)?$') { $manufacturerName = 'Dell' }
+    elseif ($manufacturerName -match '(?i)^Lenovo$') { $manufacturerName = 'Lenovo' }
+
+    $validCandidates = @($Candidates | ForEach-Object { ([string]$_).Trim() } | Where-Object {
+        $_ -and
+        $_ -notmatch '^(?i:to be filled(?: by o\.e\.m\.)?|system product(?: name)?|default string|none|n/?a|unknown)$' -and
+        $_ -notmatch '^(?i:Dell Inc\.?|Dell|Lenovo|HP|Hewlett-Packard)$'
+    } | Select-Object -Unique)
+    $model = $validCandidates | Sort-Object `
+        @{ Expression = { if ($_ -match '\d') { 1 } else { 0 } }; Descending = $true }, `
+        @{ Expression = { $_.Length }; Descending = $true } | Select-Object -First 1
+    if (-not $model) { return $(if ($manufacturerName) { $manufacturerName } else { 'Notebook Windows' }) }
+
+    $model = $model -replace '^(?i:Dell Inc\.?)\s+', 'Dell '
+    if ($manufacturerName -and $model -notmatch ('(?i)^' + [regex]::Escape($manufacturerName) + '(?:\s|$)')) {
+        $model = "$manufacturerName $model"
+    }
+    return ($model -replace '\s+', ' ').Trim()
+}
+
+function Get-WindowsRamSummary {
+    param(
+        [object[]]$Modules,
+        [object[]]$Arrays,
+        [double]$FallbackBytes = 0
+    )
+
+    $installed = @($Modules | Where-Object { (ConvertTo-CaijStorageNumber $_.Capacity) -gt 0 })
+    $bytes = [double](($installed | Measure-Object -Property Capacity -Sum).Sum)
+    if ($bytes -le 0) { $bytes = $FallbackBytes }
+    $capacity = ConvertTo-MarketedMemory -SizeGb ($bytes / 1GB)
+
+    # SMBIOSMemoryType is the raw Type 17 value; MemoryType is often 0 on Windows.
+    $typeNames = @{ 24='DDR3'; 26='DDR4'; 29='LPDDR3'; 30='LPDDR4'; 34='DDR5'; 35='LPDDR5' }
+    $types = @($installed | ForEach-Object {
+        $code = [int](ConvertTo-CaijStorageNumber $_.SMBIOSMemoryType)
+        if (-not $code) { $code = [int](ConvertTo-CaijStorageNumber $_.MemoryType) }
+        if ($typeNames.ContainsKey($code)) { $typeNames[$code] }
+    } | Select-Object -Unique)
+    $type = if ($types.Count -eq 1) { $types[0] } elseif ($types.Count -gt 1) { $types -join ' + ' } else { '' }
+
+    $moduleLabels = @($installed | ForEach-Object {
+        $moduleSize = ConvertTo-MarketedMemory -SizeGb ((ConvertTo-CaijStorageNumber $_.Capacity) / 1GB)
+        $moduleCode = [int](ConvertTo-CaijStorageNumber $_.SMBIOSMemoryType)
+        if (-not $moduleCode) { $moduleCode = [int](ConvertTo-CaijStorageNumber $_.MemoryType) }
+        $moduleType = if ($typeNames.ContainsKey($moduleCode)) { " $($typeNames[$moduleCode])" } else { '' }
+        $clock = [int](ConvertTo-CaijStorageNumber $_.ConfiguredClockSpeed)
+        if ($clock -le 0) { $clock = [int](ConvertTo-CaijStorageNumber $_.Speed) }
+        $moduleSpeed = if ($clock -gt 0 -and $clock -le 10000) { " $clock MHz" } else { '' }
+        if ($moduleSize -gt 0) { "${moduleSize}GB$moduleType$moduleSpeed" }
+    })
+    $moduleGroups = @($moduleLabels | Group-Object | ForEach-Object { "$($_.Count) × $($_.Name)" })
+
+    $systemArrays = @($Arrays | Where-Object { [int](ConvertTo-CaijStorageNumber $_.Use) -eq 3 -and [int](ConvertTo-CaijStorageNumber $_.MemoryDevices) -gt 0 })
+    $reportedDevices = [int](($systemArrays | Measure-Object -Property MemoryDevices -Sum).Sum)
+    $details = @()
+    if ($moduleGroups.Count -gt 0) {
+        $details += 'Instalado: ' + ($moduleGroups -join ' + ')
+    } else {
+        $details += 'Distribuição dos pentes: não informada'
+    }
+    if ($reportedDevices -ge $installed.Count -and $reportedDevices -le 16 -and $installed.Count -gt 0) {
+        $freeDevices = $reportedDevices - $installed.Count
+        $freeText = if ($freeDevices -eq 1) { '1 livre informada' } else { "$freeDevices livres informadas" }
+        $details += "Posições da BIOS: $($installed.Count) de $reportedDevices ocupadas; $freeText"
+    } else {
+        $details += 'Posições livres: BIOS não confirmou'
+    }
+    if (-not $type) { $details += 'Tipo DDR: não informado pela BIOS' }
+
+    # SMD é apenas um indício; SMBIOS não prova se o módulo pode ser substituído.
+    $surfaceMounted = @($installed | Where-Object { [int](ConvertTo-CaijStorageNumber $_.FormFactor) -eq 14 }).Count -gt 0
+    if ($surfaceMounted) { $details += 'RAM soldada: indício na BIOS; confirmar no equipamento' }
+    return [ordered]@{
+        ram = if ($capacity -gt 0) { "${capacity}GB$(if ($type) { " $type" })" } else { 'N/A' }
+        ramDetalhes = $details -join ' · '
+    }
+}
+
 function Get-WindowsDeviceInfo {
     $computer = Get-FirstCimInstance 'Win32_ComputerSystem'
     $computerProduct = Get-FirstCimInstance 'Win32_ComputerSystemProduct'
     $bios = Get-FirstCimInstance 'Win32_BIOS'
     $processor = Get-FirstCimInstance 'Win32_Processor'
-    $disk = Get-FirstCimInstance 'Win32_DiskDrive'
+    $allDisks = @(Get-CimInstance Win32_DiskDrive -ErrorAction SilentlyContinue)
+    $physicalDisks = @(Get-PhysicalDisk -ErrorAction SilentlyContinue)
     $gpus = @(Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue |
         ForEach-Object { ([string]$_.Name).Trim() } |
         Where-Object { $_ -and $_ -notmatch '(?i)Microsoft Basic|Adaptador de Video Basico' } |
         Select-Object -Unique)
 
     $manufacturer = ([string]$computer.Manufacturer).Trim()
-    if ($manufacturer -match '^(?i:lenovo)$') { $manufacturer = 'Lenovo' }
-    $technicalModel = ([string]$computer.Model).Trim()
-    $commercialModel = ([string]$computerProduct.Version).Trim()
-    if (-not $commercialModel -or $commercialModel -match '^(?i:to be filled|system product|default string|none|n/?a)$') {
-        $commercialModel = ([string](Get-ItemPropertyValue -LiteralPath 'HKLM:\HARDWARE\DESCRIPTION\System\BIOS' -Name 'SystemFamily' -ErrorAction SilentlyContinue)).Trim()
-    }
-    $model = if ($commercialModel -and $commercialModel -ne $technicalModel) { $commercialModel } else { $technicalModel }
-    if ($manufacturer -and $model -and $model -notmatch [regex]::Escape($manufacturer)) { $model = "$manufacturer $model" }
-    if (-not $model) { $model = 'Notebook Windows' }
+    $systemFamily = ([string](Get-ItemPropertyValue -LiteralPath 'HKLM:\HARDWARE\DESCRIPTION\System\BIOS' -Name 'SystemFamily' -ErrorAction SilentlyContinue)).Trim()
+    $systemProductName = ([string](Get-ItemPropertyValue -LiteralPath 'HKLM:\HARDWARE\DESCRIPTION\System\BIOS' -Name 'SystemProductName' -ErrorAction SilentlyContinue)).Trim()
+    $model = Get-PreferredWindowsModelName -Manufacturer $manufacturer -Candidates @(
+        [string]$computer.Model,
+        [string]$computerProduct.Name,
+        [string]$computerProduct.Version,
+        $systemProductName,
+        $systemFamily
+    )
 
-    $ramGb = if ($computer.TotalPhysicalMemory) { [math]::Round([double]$computer.TotalPhysicalMemory / 1GB) } else { 0 }
-    $diskGb = if ($disk.Size) { [double]$disk.Size / 1GB } else { 0 }
-    $diskKind = if (([string]$disk.MediaType) -match '(?i)SSD|Solid') { 'SSD' } else { 'SSD' }
+    $ramModules = @(Get-CimInstance Win32_PhysicalMemory -ErrorAction SilentlyContinue)
+    $ramArrays = @(Get-CimInstance Win32_PhysicalMemoryArray -ErrorAction SilentlyContinue)
+    $ramSummary = Get-WindowsRamSummary -Modules $ramModules -Arrays $ramArrays -FallbackBytes (ConvertTo-CaijStorageNumber $computer.TotalPhysicalMemory)
 
     $batteryText = Get-WindowsBatterySummary
 
@@ -352,14 +477,28 @@ function Get-WindowsDeviceInfo {
         serial = if ($bios.SerialNumber) { ([string]$bios.SerialNumber).Trim() } else { 'N/A' }
         cpu = if ($processor.Name) { ([string]$processor.Name).Trim() } else { 'N/A' }
         gpu = if ($gpus.Count) { $gpus -join ' + ' } else { 'N/A' }
-        ram = if ($ramGb -gt 0) { "${ramGb}GB" } else { 'N/A' }
-        disco = ConvertTo-MarketedStorage -SizeGb $diskGb -Kind $diskKind
+        ram = $ramSummary.ram
+        ramDetalhes = $ramSummary.ramDetalhes
+        disco = Get-CaijWindowsStorageSummary -Disks $allDisks -PhysicalDisks $physicalDisks
         bateria = if ($batteryText) { $batteryText } else { 'N/A' }
     }
 }
 
+if ($DeviceOutput) {
+    try { $result = @{ ok=$true; info=(Get-WindowsDeviceInfo) } }
+    catch { $result = @{ ok=$false; message=$_.Exception.Message } }
+    $staging = $DeviceOutput + '.pending'
+    [IO.File]::WriteAllText($staging, ($result | ConvertTo-Json -Depth 8 -Compress), (New-Object Text.UTF8Encoding($false)))
+    Move-Item -LiteralPath $staging -Destination $DeviceOutput -Force
+    exit
+}
+
+$mediaPolicyEntries = @()
 try {
-    $server = Get-CaijServer
+    # A interface local nao depende de uma consulta de rede ou da leitura CIM.
+    # O cliente descobre o servidor ao usar uma operacao central.
+    $savedServerPath = Join-Path $PSScriptRoot 'caij_servidor_url.txt'
+    $server = if (Test-Path -LiteralPath $savedServerPath) { ([string](Get-Content -LiteralPath $savedServerPath -Raw)).Trim() } else { 'http://192.168.15.200:9100' }
     $localBridge = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
     $localBridge.Start()
     $localBridgePort = ([System.Net.IPEndPoint]$localBridge.LocalEndpoint).Port
@@ -372,11 +511,12 @@ try {
     $runtime = [ordered]@{
         platform = 'windows'
         equipmentType = 'Notebook'
-        info = Get-WindowsDeviceInfo
+        info = @{}
+        deviceReading = 'pending'
         osNumero = [int]$osDigits
         serverUrl = $server
-        lastServerStatus = 'online'
-        internetStatus = 'online'
+        lastServerStatus = 'nao verificado'
+        internetStatus = 'nao verificado'
         version = "$version-preview"
         localBridgeUrl = "http://127.0.0.1:$localBridgePort"
     }
@@ -400,14 +540,29 @@ try {
     $arguments = @(
         '--inprivate',
         '--new-window',
-        '--start-maximized',
+        '--start-fullscreen',
         '--no-first-run',
         '--disable-features=msEdgeFirstRunExperience',
+        '--auto-accept-camera-and-microphone-capture',
         "--user-data-dir=$previewProfile",
         "--app=$url"
     )
+    $deviceOutputPath = Join-Path ([IO.Path]::GetTempPath()) ('caij-device-' + [guid]::NewGuid().ToString('N') + '.json')
+    $deviceArguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "{0}" -DeviceOutput "{1}"' -f $PSCommandPath, $deviceOutputPath
+    $deviceProcess = Start-Process powershell.exe -ArgumentList $deviceArguments -WindowStyle Hidden -PassThru
+    $deviceClock = [Diagnostics.Stopwatch]::StartNew()
     $edgeProcess = Start-Process -FilePath $edge -ArgumentList $arguments -PassThru
+    $edgeWindowSeen = $false
+    $edgeWindowClosedAt = $null
     while (-not $edgeProcess.HasExited) {
+        $edgeProcess.Refresh()
+        if ($edgeProcess.MainWindowHandle -ne [IntPtr]::Zero) {
+            $edgeWindowSeen = $true
+            $edgeWindowClosedAt = $null
+        } elseif ($edgeWindowSeen) {
+            if (-not $edgeWindowClosedAt) { $edgeWindowClosedAt = Get-Date }
+            if (((Get-Date) - $edgeWindowClosedAt).TotalSeconds -ge 5) { break }
+        }
         if (-not $localBridge.Pending()) { Start-Sleep -Milliseconds 100; $edgeProcess.Refresh(); continue }
         $client = $localBridge.AcceptTcpClient()
         try {
@@ -419,8 +574,22 @@ try {
             } elseif ($requestLine -match '^POST\s+/3utools(?:\?|\s)') {
                 try { Send-LocalJsonResponse -Client $client -StatusCode 200 -Body @{ ok=$true; device=(Get-Windows3uToolsInfo) } }
                 catch { Send-LocalJsonResponse -Client $client -StatusCode 500 -Body @{ ok=$false; message=$_.Exception.Message } }
+            } elseif ($requestLine -match '^GET\s+/device-info(?:\?|\s)') {
+                if (Test-Path -LiteralPath $deviceOutputPath) {
+                    $deviceResult = Get-Content -LiteralPath $deviceOutputPath -Raw -Encoding UTF8 | ConvertFrom-Json
+                    Send-LocalJsonResponse -Client $client -StatusCode 200 -Body $deviceResult
+                } elseif ($deviceProcess.HasExited -or $deviceClock.Elapsed.TotalSeconds -gt 60) {
+                    if (-not $deviceProcess.HasExited) { Stop-Process -Id $deviceProcess.Id -ErrorAction SilentlyContinue }
+                    Send-LocalJsonResponse -Client $client -StatusCode 200 -Body @{ ok=$false; message='A leitura do equipamento nao terminou. Feche e abra o aplicativo para tentar novamente.' }
+                } else {
+                    Send-LocalJsonResponse -Client $client -StatusCode 200 -Body @{ pending=$true }
+                }
             } elseif ($requestLine -match '^GET\s+(\S+)\s+HTTP/') {
-                if (-not (Send-LocalUiFile -Client $client -UiDirectory $localUiDirectory -RequestPath $Matches[1])) {
+                $uiRequestPath = $Matches[1]
+                if ($env:CAIJ_STARTUP_READY -and $uiRequestPath -match '^/app\.js(?:\?|$)') {
+                    [IO.File]::WriteAllText($env:CAIJ_STARTUP_READY, 'ready')
+                }
+                if (-not (Send-LocalUiFile -Client $client -UiDirectory $localUiDirectory -RequestPath $uiRequestPath)) {
                     Send-LocalJsonResponse -Client $client -StatusCode 404 -Body @{ ok=$false; message='Arquivo local nao encontrado.' }
                 }
             } else {
@@ -444,4 +613,11 @@ try {
         [System.Windows.Forms.MessageBoxIcon]::Warning
     ) | Out-Null
     exit 1
+} finally {
+    if ($deviceProcess -and -not $deviceProcess.HasExited) { Stop-Process -Id $deviceProcess.Id -ErrorAction SilentlyContinue }
+    if ($deviceOutputPath) {
+        foreach ($path in @($deviceOutputPath, ($deviceOutputPath + '.pending'))) {
+            if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
+        }
+    }
 }

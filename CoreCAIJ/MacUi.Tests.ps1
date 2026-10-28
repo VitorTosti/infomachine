@@ -35,6 +35,7 @@ import importlib.util
 import pathlib
 import sys
 import tempfile
+import time
 
 server_path = pathlib.Path(sys.argv[1])
 spec = importlib.util.spec_from_file_location("mac_ui_server", server_path)
@@ -121,6 +122,9 @@ with tempfile.TemporaryDirectory() as temp:
         if path == "/imprimir":
             assert payload["os"] == 1385
             return {"status": "ok"}
+        if path == "/sincronizar-rastreador":
+            assert payload["osNumero"] == 1385
+            return {"status": "ok", "rastreador": {"status": "updated"}}
         if path == "/status-os":
             return {"proximoDisponivel": 1386}
         if path == "/proxima-os":
@@ -144,6 +148,9 @@ with tempfile.TemporaryDirectory() as temp:
     assert app.public_state()["pendingCreatedOs"] == 1385
     printed = app.print_label({"grade": "T - TRIAGEM", "obs": "", "includeOs": True, "info": info})
     assert printed["ok"] is True
+    deadline = time.time() + 1
+    while app.public_state()["osNumero"] != 1386 and time.time() < deadline:
+        time.sleep(0.01)
     assert app.public_state()["osNumero"] == 1386
     assert app.public_state()["pendingCreatedOs"] == 0
 
@@ -157,6 +164,11 @@ with tempfile.TemporaryDirectory() as temp:
                 "mensagem": "Impresso com sucesso e rastreador atualizado.",
                 "rastreador": {"status": "updated", "os": "C001221"},
             }
+        if path == "/sincronizar-rastreador":
+            assert payload["osNumero"] == 1221
+            assert payload["grade"] == "B"
+            assert payload["observacao"] == "TESTES: OK"
+            return {"status": "ok", "rastreador": {"status": "updated"}}
         if path == "/status-os":
             return {"proximoDisponivel": 1386}
         if path == "/proxima-os":
@@ -208,7 +220,7 @@ Assert-True ($portableText -match 'window\.location\.origin') 'interface hospeda
 Assert-True ($portableText -match 'INFOCAIJ\.local:9100[\s\S]*INFOCAIJ:9100[\s\S]*192\.168\.15\.11:9100') 'modo portatil possui contingencias de servidor'
 Assert-True ($portableText -match '"/buscar-opcoes-altertag"') 'modo portatil busca produtos no servidor CAIJ'
 Assert-True ($portableText -match '"/criar-os-altertag"') 'modo portatil cadastra OS pelo servidor CAIJ'
-Assert-True ($portableText -match '"/imprimir"') 'modo portatil envia etiqueta ao servidor CAIJ'
+Assert-True ($portableText -match 'async function\s+printOnce[\s\S]*\$\{base\}/imprimir') 'modo portatil envia uma unica requisicao de etiqueta ao servidor CAIJ'
 Assert-True ($centralServerText -match 'Access-Control-Allow-Origin') 'servidor permite acesso da interface portatil do Safari'
 Assert-True ($centralServerText -match '\$metodo -eq ''OPTIONS''') 'servidor responde preflight da interface portatil'
 Assert-True ($centralServerText -match '\$rota -match ''\^/mac') 'servidor publica a interface Mac na rede local'
@@ -223,8 +235,14 @@ Assert-True ($indexText -match 'id="refreshReading"[\s\S]*id="copyDeviceInfo"[\s
 Assert-True ($indexText -notmatch 'id="newMachine"|Nova máquina') 'faixa superior nao oferece acao redundante de nova maquina'
 Assert-True (($indexText | Select-String -Pattern 'class="test-row"' -AllMatches).Matches.Count -eq 5) 'central possui os cinco testes tecnicos previstos'
 Assert-True ($indexText -match 'data-test="camera"[\s\S]*data-test="keyboard"[\s\S]*data-test="audio"[\s\S]*data-test="screen"[\s\S]*data-test="trackpad"') 'central organiza camera teclado audio tela e trackpad'
-Assert-True ($appText -match 'requestUserMedia\(\{ video: true') 'camera usa captura local segura do navegador'
-Assert-True ($appText -match 'requestUserMedia\(\{ audio: true') 'microfone usa captura local segura do navegador'
+Assert-True ($appText -match 'requestUserMediaWithStartupRetry\(\{ video: true') 'camera usa captura local segura do navegador'
+Assert-True ($indexText -match 'id="cameraPermissionDialog"[\s\S]*id="cancelCameraPermission"[\s\S]*id="confirmCameraPermission"') 'camera possui confirmacao visual propria antes do acesso'
+Assert-True ($appText -match 'confirmCameraTestPermission\(\)[\s\S]*requestUserMediaWithStartupRetry\(\{ video: true') 'camera pede confirmacao visual antes de acessar o dispositivo'
+Assert-True ($appText -match 'function\s+requestUserMediaWithStartupRetry[\s\S]*attempts\s*=\s*isWindowsPreview\s*\?\s*3\s*:\s*1[\s\S]*setTimeout\(resolve, 450 \* \(attempt \+ 1\)\)') 'Windows repete automaticamente a captura durante a liberacao inicial'
+Assert-True ($appText -match 'requestUserMediaWithStartupRetry\(\{ video: true, audio: false \}\)[\s\S]*requestUserMediaWithStartupRetry\(\{ audio: true, video: false \}\)') 'camera e microfone usam a tolerancia de inicializacao'
+Assert-True ($indexText -match 'O app inicia a câmera[\s\S]*Esta é a única confirmação necessária dentro do InfoNotebook') 'pop-up informa que nao havera uma segunda confirmacao no aplicativo'
+Assert-True ($styleText -match '\.media-permission-dialog\s*\{[\s\S]*position:\s*fixed;[\s\S]*inset:\s*0;[\s\S]*margin:\s*auto;') 'confirmacao da camera permanece centralizada na tela'
+Assert-True ($appText -match 'requestUserMediaWithStartupRetry\(\{ audio: true') 'microfone usa captura local segura do navegador'
 Assert-True ($appText -match 'navigator\.mediaDevices\s*&&\s*typeof navigator\.mediaDevices\.getUserMedia') 'camera trata Safari sem mediaDevices sem erro undefined'
 Assert-True ($appText -match 'function\s+openKeyboardTest') 'teclado possui mapa interativo local'
 Assert-True ($appText -match '"ESC","F1","F2","F3","F4","F5","F6"[\s\S]*"F12"') 'mapa do teclado inclui Esc e F1 ate F12'
@@ -234,13 +252,25 @@ Assert-True ($macRowsMatch.Success -and $macRowCount -eq 5) 'teclado do Mac poss
 Assert-True ($styleText -match '\.keyboard-row\s*\{[\s\S]*min-width:\s*760px') 'linhas do teclado preservam a disposicao em telas estreitas'
 Assert-True ($appText -match 'Quote:\s*"''"[\s\S]*Slash:\s*"/"') 'pontuacao usa codigo fisico para apostrofo e barra'
 Assert-True ($appText -match 'event\.preventDefault\(\)[\s\S]*event\.stopPropagation\(\)') 'Esc nao fecha o teste durante a validacao do teclado'
+Assert-True ($appText -match 'addEventListener\("keydown", state\.keyboardHandler, true\)[\s\S]*addEventListener\("keyup", state\.keyboardHandler, true\)') 'teclado diferencia tecla pressionada de tecla confirmada'
+Assert-True ($appText -match 'key === "F11"[\s\S]*data-manual-confirm="true"') 'F11 do Mac pode ser confirmado sem acionar o controle de tela do sistema'
+Assert-True ($appText -match 'querySelectorAll\(''kbd\[data-manual-confirm="true"\]''\)[\s\S]*item\.addEventListener\("click", \(\) => confirmKey\(item\.dataset\.key\)\)') 'clique nas teclas de confirmacao manual registra a tecla correspondente'
+Assert-True ($appText -match 'Se F11 controlar a tela do Mac, clique em F11 no mapa') 'teste explica a alternativa segura para o F11'
+Assert-True ($styleText -match '\.keyboard-map kbd\.manual-confirm[\s\S]*cursor:\s*pointer') 'F11 manual possui aparencia interativa'
 Assert-True ($appText -match 'use Fn \+ F1') 'teste orienta o uso de Fn nas teclas de funcao do Mac'
 Assert-True ($appText -match 'function\s+openScreenTest') 'tela possui teste dedicado de cores'
 Assert-True ($appText -match 'function\s+openTrackpadTest') 'trackpad mede movimento clique e rolagem'
+Assert-True ($indexText -match 'id="skipActiveTest"[\s\S]*id="failAndNextTest"[\s\S]*id="passAndNextTest"[\s\S]*id="activeTestBody"') 'teste aberto oferece navegacao sequencial antes da area interativa'
+Assert-True ($appText -match 'const testSequence\s*=\s*\["camera",\s*"keyboard",\s*"audio",\s*"screen",\s*"trackpad"\]') 'navegacao segue a ordem dos cinco testes tecnicos'
+Assert-True ($appText -match 'function\s+completeActiveTest[\s\S]*state\.tests\[currentTest\]\s*=\s*result[\s\S]*await openTest\(nextTest\)') 'aprovacao ou reprovacao registra o resultado e abre o proximo teste'
+Assert-True ($appText -match 'Aprovado e finalizar[\s\S]*Reprovado e finalizar') 'ultimo teste troca a acao de avancar por finalizar'
+Assert-True ($styleText -match '\.tests-page \.active-test-actions\s*\{\s*position:\s*sticky;') 'acoes sequenciais permanecem acessiveis acima do teste'
 Assert-True ($appText -match 'const testLabels\s*=\s*\{[\s\S]*camera:\s*"Camera"[\s\S]*keyboard:\s*"Teclado"[\s\S]*audio:\s*"Som/Mic"[\s\S]*screen:\s*"Tela"[\s\S]*trackpad:\s*"Trackpad"') 'resumo possui rotulo para cada teste realizado'
 Assert-True ($appText -match 'return `TESTES: \$\{overall\} \| \$\{details\}`') 'resumo combina status geral e resultados individuais sem rotulo exclusivo do Mac'
 Assert-True ($appText -match 'return `TESTES: \$\{testsOverall\(\)\}`') 'etiqueta recebe somente o resultado compacto dos testes'
-Assert-True ($appText -match 'function\s+syncCompletedTestsToObservations[\s\S]*appendTestsReport') 'resultado final entra automaticamente nas observacoes'
+Assert-True ($appText -match 'function\s+syncCompletedTestsToRecord[\s\S]*renderObservationPreviews\(\)') 'resultado final entra automaticamente no registro sem alterar observacoes manuais'
+Assert-True ($indexText -match 'id="createServiceChecklist"[\s\S]*id="createObservation"[\s\S]*id="createObservationPreview"') 'cadastro mostra checklist, observacoes livres e pre-visualizacao'
+Assert-True ($indexText -match 'id="labelServiceChecklist"[\s\S]*id="obs"[\s\S]*id="labelObservationPreview"') 'etiqueta mostra checklist, observacoes livres e resumo imprimivel'
 Assert-True ($appText -match 'if \(testsOnlyMode\)[\s\S]*copyText\(report\)[\s\S]*caij:mac-tests-observation') 'central independente prepara a observacao para o app nativo ao finalizar'
 Assert-True ($indexText -match 'id="testsActionStatus"') 'central confirma visualmente a inclusao da observacao'
 Assert-True ($indexText -match 'id="finishTests">Testes finalizados</button>') 'central exibe acao clara quando todos os testes terminam'
@@ -281,12 +311,16 @@ Assert-True ($commandText -match 'dialog_set_os_manual "sim"[\s\S]*skip_reserve=
 Assert-True ($commandText -notmatch 'Selecione o tipo de pintura') 'impressao nativa usa Grade C unica'
 Assert-True ($commandText -match '"Testes do Mac"\)\s*open_native_tests') 'fallback mantem o processo vivo ao abrir a central de testes'
 Assert-True ($commandText -match 'tests_file="\$CORE/mac-ui/index\.html"') 'fallback usa a interface presente em todas as instalacoes'
+Assert-True ($commandText -match 'Arquivos de teste ausentes[\s\S]*copia local do InfoNotebook esta incompleta') 'launcher diferencia arquivos locais ausentes'
+Assert-True ($commandText -match 'Servidor local indisponivel[\s\S]*camera e microfone com seguranca') 'launcher diferencia runtime local indisponivel'
 Assert-True ($commandText -match 'open -a Safari "\$tests_url"') 'fallback abre os testes locais no Safari'
+Assert-True ($commandText -match 'tests_url="http://127\.0\.0\.1:\$port/\?tests=1&app=\$cache_key"') 'testes nativos usam origem local segura para camera e microfone'
+Assert-True ($commandText -notmatch 'tests_url="file://\$tests_file\?tests=1"') 'testes nativos nao usam mais origem file insegura'
 Assert-True ($commandText -match 'write_portable_runtime_data') 'launcher gera dados para a interface portatil'
 Assert-True ($commandText -match 'launch_portable_web_ui[\s\S]*portable\.js') 'launcher abre interface completa sem depender de Python'
 Assert-True ($commandText -match 'ui_url="file://\$ui_file\?app=\$cache_key"[\s\S]*ui_url="\$\{ui_url// /%20\}"[\s\S]*open -a Safari "\$ui_url"') 'launcher abre caminho de pendrive com espacos e evita cache no Safari'
 Assert-True ($commandText -match 'launch_local_static_ui[\s\S]*http://127\.0\.0\.1:\$port/') 'launcher oferece origem local segura para camera e microfone'
-Assert-True ($commandText -match 'if launch_web_ui; then[\s\S]*if launch_local_static_ui; then[\s\S]*if launch_portable_web_ui; then') 'origens locais seguras tem prioridade na abertura do Mac'
+Assert-True ($commandText -match 'if CAIJ_MAC_HOSTED_ONLY=1 launch_portable_web_ui; then[\s\S]*if launch_web_ui; then[\s\S]*if launch_local_static_ui; then[\s\S]*if launch_portable_web_ui; then') 'interface hospedada atual tem prioridade e origens locais permanecem como fallback'
 Assert-True ($appText -match '!window\.isSecureContext[\s\S]*interface local segura') 'testes explicam quando camera e microfone estao em origem insegura'
 Assert-True ($commandText -match '! -w "\$DIR" \|\| ! -w "\$CORE"') 'launcher detecta pendrive somente leitura no macOS'
 Assert-True ($commandText -match 'Library/Application Support/CAIJ/InfoNotebook') 'launcher usa copia local gravavel para pendrive NTFS'
@@ -295,13 +329,17 @@ Assert-True ($indexText -match 'id="internetBadge"[\s\S]*id="serverBadge"[\s\S]*
 Assert-True ($indexText -match 'id="osInput"') 'OS pode ser editada diretamente no resumo'
 Assert-True ($indexText -match 'id="brandLogo"[\s\S]*id="fullscreenBtn"') 'cabecalho mostra logo e controle de tela cheia'
 Assert-True ($appText -match 'persistEditedOs') 'alteracao visual da OS e aplicada antes da impressao'
+Assert-True ($appText -match 'osNumero:\s*printedOs[\s\S]*persistEditedOs\(printedOs\)') 'impressao envia e persiste exatamente a OS digitada na pagina de etiquetas'
+Assert-True ($portableText -match 'if \(body\.includeOs && Number\(body\.osNumero\) > 0\)[\s\S]*manualOsSet = true') 'modo portatil preserva a OS explicita sem reservar outro numero'
+Assert-True ($portableText -match 'if \(path === "/api/set-os"\)[\s\S]*manualOsSet = true') 'alteracao manual de OS e reconhecida tambem no Mac'
+Assert-True ($serverText -match 'explicit_os = int\(request_data\.get\("osNumero"\) or 0\)[\s\S]*set_os_number\(explicit_os, manual=True\)') 'backend local usa a OS explicita recebida na impressao'
 Assert-True ($appText -match 'document\.documentElement\.requestFullscreen') 'interface permite tela cheia por acao direta'
 Assert-True ($commandText -match '\$server_url/mac/\?app=\$cache_key#runtime=\$runtime_token') 'launcher prefere interface hospedada no servidor CAIJ'
 Assert-True ($commandText -match 'set bounds of front window to screenBounds') 'launcher amplia a janela do Safari ao abrir'
-Assert-True ($appText -notmatch 'command:\s*"open-tests"') 'botao de testes nao abre outro link no Mac'
+Assert-True ($appText -match 'function\s+openTestsPage[\s\S]*window\.isSecureContext[\s\S]*command:\s*"open-tests"') 'origem hospedada encaminha testes para a interface local segura'
 Assert-True ($indexText -match 'class="app-view tests-page hidden" id="testsView"') 'testes possuem pagina propria dentro da interface'
 Assert-True ($indexText -match 'class="app-view create-os-page hidden" id="createOsView"') 'cadastro de OS possui pagina propria dentro da interface'
-Assert-True ($appText -match 'openTests[\s\S]*showAppView\("tests"\)') 'botao abre a pagina de testes dentro da mesma interface'
+Assert-True ($appText -match 'openTestsPage[\s\S]*showAppView\("tests"\)') 'origem segura abre a pagina de testes dentro da mesma interface'
 Assert-True ($appText -match 'function\s+openCreateOs[\s\S]*showAppView\("createOs"\)') 'botao abre a pagina de cadastro dentro da mesma interface'
 Assert-True ($indexText -notmatch 'id="testsDialog"|id="createOsDialog"') 'testes e cadastro nao usam mais pop-up'
 Assert-True ($portableText -match '"/mac/comando"') 'interface envia comando nativo ao launcher Mac'

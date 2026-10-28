@@ -37,8 +37,21 @@ Assert-True ($macUpdaterText -match 'print -rn -- "\$BASE_URL" > "\$SERVER_FILE"
 Assert-True ($macUpdaterText -match 'TEMP_TARGET="\$\{TARGET\}\.caij-new\.\$\$"[\s\S]*mv -f "\$TEMP_TARGET" "\$TARGET"') 'Mac substitui arquivos sem truncar o atualizador em execucao'
 Assert-True ($macUpdaterText -match 'STATUS_FILE="\$CORE_DIR/caij_atualizacao_status\.txt"') 'Mac registra o resultado da tentativa de atualizacao'
 Assert-True ($macUpdaterText -match 'exit 10') 'Mac informa ao launcher quando instalou uma versao nova'
+Assert-True ($macUpdaterText -match 'ESSENTIAL_FILES=\([\s\S]*mac-ui/index\.html[\s\S]*mac-ui/portable\.js[\s\S]*LOCAL_INSTALL_COMPLETE') 'Mac detecta e repara instalacao local incompleta mesmo na mesma versao'
 Assert-True ($publisherText -notmatch "'CoreCAIJ/caij_servidor_url\.txt'") 'publicacao nao inclui configuracao do servidor'
 Assert-True ($publisherText -match "'CoreCAIJ/InfoNotebookWindowsPreview\.ps1'") 'publicacao inclui o inicializador da interface web Windows'
+Assert-True ($publisherText -match 'Interface Windows nao entrega o script obrigatorio') 'publicacao rejeita scripts nao servidos pela ponte Windows'
+$windowsPreviewText = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'InfoNotebookWindowsPreview.ps1') -Raw
+$uiIndexText = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'mac-ui\index.html') -Raw
+foreach ($scriptMatch in [regex]::Matches($uiIndexText, '<script\s+src="([^"]+)"')) {
+    $scriptName = $scriptMatch.Groups[1].Value
+    Assert-True ($windowsPreviewText -match [regex]::Escape("'/$scriptName'")) "Windows entrega $scriptName"
+}
+Assert-True ($publisherText -match "GetFolderPath\('MyDocuments'\).*'CAIJ\\Servidor\\Atualizacoes'") 'pacotes publicados ficam organizados em Documentos CAIJ'
+Assert-True ($serverText -match '\$caijServerDataRoot\s*=\s*Join-Path.*GetFolderPath\(''MyDocuments''\).*''CAIJ\\Servidor''') 'dados do servidor ficam fora da area de trabalho'
+Assert-True ($serverText -match '\$estadoOsArquivo\s*=\s*Join-Path \$caijServerDataRoot ''Dados\\estado_os\.json''') 'estado da OS fica na pasta de dados'
+Assert-True ($serverText -match '\$script:qrFichaDir\s*=\s*Join-Path \$caijServerDataRoot ''Fichas QR''') 'fichas QR ficam na pasta propria'
+Assert-True ($serverText -match '\$keyPath\s*=\s*Join-Path \$caijServerDataRoot ''Credenciais\\caij_ficha_api_key\.txt''') 'chave da ficha fica separada em credenciais'
 Assert-True ($serverText -match "\$rota -eq '/atualizacao/manifesto'") 'servidor expoe manifesto'
 Assert-True ($serverText -match "\$rota -eq '/atualizacao/pacote'") 'servidor expoe pacote'
 Assert-True ($vbsText -match 'AtualizarCAIJ\.ps1') 'Windows atualiza antes de iniciar'
@@ -80,6 +93,7 @@ Assert-True ($publisherText -match 'lenovoExpectedHash') 'publicacao valida inte
 Assert-True ($publisherBatText -match 'CoreCAIJ\\AplicarServidorLocal\.ps1') 'publicacao tambem aplica mudancas do servidor central'
 Assert-True ($serverInstallerText -match "function\s+Get-CaijFileSha256") 'instalador central compara SHA256 mesmo em PowerShell sem Get-FileHash'
 Assert-True ($serverInstallerText -match 'ServidorImpressao\.backup-') 'instalador central preserva backup antes de substituir'
+Assert-True ($serverInstallerText -match '\$backupDirectory\s*=.*CAIJ\\Servidor\\Backups') 'backups do servidor nao ocupam a area de trabalho'
 Assert-True ($serverInstallerText -match 'Get-CimInstance Win32_Process') 'instalador central identifica o processo exato antes de reiniciar'
 Assert-True ($serverInstallerText -match 'ServidorImpressaoWatchdog\.ps1') 'instalador central aplica monitor de recuperacao'
 Assert-True ($serverInstallerText -match 'http add urlacl') 'instalador autoriza o watchdog a reiniciar sem elevacao'

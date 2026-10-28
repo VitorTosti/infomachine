@@ -10,6 +10,9 @@ InfoNotebook.lnk
 
 # Pacotes publicados localmente para os pendrives
 CoreCAIJ/atualizacoes/
+/Deploy-NAS-*/
+/CoreCAIJ/AplicarAtualizacaoNAS-20261026.ps1
+/CoreCAIJ/AplicarPerformanceNAS-20261026.ps1
 
 # Generic temp / editor files
 *.tmp

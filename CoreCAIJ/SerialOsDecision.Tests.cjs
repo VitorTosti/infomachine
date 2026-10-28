@@ -1,0 +1,24 @@
+const assert = require('node:assert/strict');
+const { decideSerialOs, canReuseSerialLookup, shouldFlagSerialDivergence, intelCpuModel } = require('./mac-ui/serial-os.js');
+
+const first = { numero: 1164, osCodigo: 'C001164', garantia: '7NKF1G3' };
+const second = { numero: 2200, osCodigo: 'C002200', garantia: '7NKF1G3' };
+assert.deepEqual(decideSerialOs('7nkf-1g3', [first], false, 0), { kind: 'select', orders: [first] });
+assert.deepEqual(decideSerialOs('7NKF1G3', [first, second], false, 0), { kind: 'choose', orders: [second, first] });
+assert.equal(decideSerialOs('7NKF1G3', [first], true, 0).kind, 'choose');
+assert.equal(decideSerialOs('7NKF1G3', [first], true, 0, 1164).kind, 'already');
+assert.equal(decideSerialOs('7NKF1G3', [], false, 0).kind, 'none');
+assert.equal(decideSerialOs('N/A', [first], false, 0).kind, 'skip');
+assert.equal(decideSerialOs('7NKF1G3', [first], false, 1164).kind, 'skip');
+assert.equal(decideSerialOs('DIFFERENT', [first], false, 0).kind, 'none');
+assert.equal(canReuseSerialLookup('7NKF1G3', { serial: '7NKF1G3', status: 'searching' }), true);
+assert.equal(canReuseSerialLookup('7NKF1G3', { serial: '7NKF1G3', status: 'none' }), true);
+assert.equal(canReuseSerialLookup('7NKF1G3', { serial: 'OTHER', status: 'searching' }), false);
+assert.equal(canReuseSerialLookup('7NKF1G3', { serial: '7NKF1G3', status: 'idle' }), false);
+assert.equal(shouldFlagSerialDivergence('7NKF1G3', 'OTHER', false, false, 'none'), false);
+assert.equal(shouldFlagSerialDivergence('7NKF1G3', 'OTHER', true, false, 'none'), true);
+assert.equal(shouldFlagSerialDivergence('7NKF1G3', 'OTHER', false, false, 'selected'), true);
+assert.equal(intelCpuModel('12th Gen Intel(R) Core(TM) i5-1235U CPU @ 1.30GHz'), 'i5-1235U');
+assert.equal(intelCpuModel('11th Gen Intel(R) Core(TM) i7-1165G7'), 'i7-1165G7');
+assert.equal(intelCpuModel('Apple M2'), '');
+console.log('PASS: selecao automatica so com OS unica e serial valida; ambiguidade exige escolha.');

@@ -17,9 +17,12 @@
     manualOsSet: false,
     equipmentType: defaultEquipmentType,
     device3u: null,
+    deviceReading: runtime.deviceReading || 'ready',
   };
   let lastSeenConfirmed = null;
   let activeServer = "";
+  let serverDiscovery = null;
+  const pendingReads = new Map();
 
   function formatOs(value) {
     return `C${String(Math.max(Number(value) || 0, 0)).padStart(6, "0")}`;
@@ -44,6 +47,8 @@
       /^https?:$/i.test(window.location.protocol) ? window.location.origin : "",
       runtime.serverUrl,
       portableState.serverUrl,
+      "http://NAS-CAIJ:9100",
+      "http://192.168.15.200:9100",
       "http://INFOCAIJ.local:9100",
       "http://INFOCAIJ:9100",
       "http://192.168.15.11:9100",
@@ -54,43 +59,120 @@
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
     try {
-      return await fetch(url, { ...options, cache: "no-store", signal: controller.signal });
+      const response = await fetch(url, { ...options, cache: "no-store", signal: controller.signal });
+      // Keep the deadline active while the response body is still arriving.
+      const data = await response.json();
+      return { ok: response.ok, json: async () => data };
     } finally {
       clearTimeout(timer);
     }
   }
 
+  function fetchErrorMessage(error) {
+    const message = String(error && error.message ? error.message : "").trim();
+    if (error && (error.name === "AbortError" || /aborted|abort|signal/i.test(message))) {
+      return "tempo limite de conexao";
+    }
+    return message || "verifique a rede";
+  }
+
+  async function findReachableServer(timeout = 2500) {
+    if (activeServer) return activeServer;
+    if (serverDiscovery) return serverDiscovery;
+    const candidates = [...new Set(activeServer ? [activeServer, ...serverCandidates()] : serverCandidates())];
+    serverDiscovery = (async () => {
+      try {
+        const base = await Promise.any(candidates.map(async (base) => {
+          const response = await fetchWithTimeout(`${base}/status`, {}, timeout);
+          const data = await response.json();
+          if (!response.ok || String(data.status || "").toLowerCase() !== "ok") throw new Error("Servidor invalido");
+          return base;
+        }));
+        activeServer = base;
+        portableState.serverUrl = base;
+        portableState.lastServerStatus = "online";
+        return base;
+      } catch (_) {
+        portableState.lastServerStatus = "offline";
+        throw new Error("Servidor CAIJ indisponivel. Verifique a rede e tente novamente.");
+      } finally {
+        serverDiscovery = null;
+      }
+    })();
+    return serverDiscovery;
+  }
+
+  async function printOnce(payload, timeout = 35000) {
+    const base = await findReachableServer();
+    try {
+      const response = await fetchWithTimeout(`${base}/imprimir`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json; charset=utf-8" },
+        body: JSON.stringify(payload),
+      }, timeout);
+      const data = await response.json();
+      if (!response.ok || String(data.status || "ok").toLowerCase() === "erro") {
+        throw new Error(data.mensagem || data.message || "Falha no servidor CAIJ");
+      }
+      return data;
+    } catch (error) {
+      if (activeServer === base) activeServer = "";
+      portableState.lastServerStatus = "offline";
+      if (error && (error.name === "AbortError" || /aborted|abort|signal/i.test(String(error.message || "")))) {
+        throw new Error("A impressao excedeu 35 segundos. Confira se a etiqueta saiu antes de tentar novamente.");
+      }
+      throw new Error(`Falha ao enviar a etiqueta. ${fetchErrorMessage(error)}.`);
+    }
+  }
+
   async function central(path, body, timeout = 12000) {
+    if (body !== undefined) return centralRequest(path, body, timeout);
+    const key = `${timeout}:${path}`;
+    if (pendingReads.has(key)) return pendingReads.get(key);
+    const request = centralRequest(path, body, timeout);
+    pendingReads.set(key, request);
+    try {
+      return await request;
+    } finally {
+      pendingReads.delete(key);
+    }
+  }
+
+  async function centralRequest(path, body, timeout) {
     const options = body === undefined ? {} : {
       method: "POST",
       headers: { "Content-Type": "application/json; charset=utf-8" },
       body: JSON.stringify(body),
     };
-    let lastError = null;
-    const candidates = activeServer ? [activeServer, ...serverCandidates()] : serverCandidates();
-    for (const base of [...new Set(candidates)]) {
+    // Discover using read-only status checks, then dispatch writes exactly once.
+    // A lost response does not mean the server failed to create the OS.
+    for (let attempt = 0; attempt < (body === undefined ? 2 : 1); attempt++) {
+      const base = await findReachableServer();
+      let response;
       try {
-        const response = await fetchWithTimeout(base + path, options, timeout);
-        const data = await response.json();
-        if (!response.ok || String(data.status || "ok").toLowerCase() === "erro") {
-          throw new Error(data.mensagem || data.message || "Falha no servidor CAIJ");
-        }
-        activeServer = base;
-        portableState.serverUrl = base;
-        portableState.lastServerStatus = "online";
-        return data;
+        response = await fetchWithTimeout(base + path, options, timeout);
       } catch (error) {
-        lastError = error;
+        if (activeServer === base) activeServer = "";
+        portableState.lastServerStatus = "offline";
+        if (body === undefined && attempt === 0) continue;
+        const warning = body === undefined ? "" : " Confira o resultado no sistema antes de tentar novamente; a solicitacao pode ter sido recebida.";
+        throw new Error(`Falha de conexao com o servidor CAIJ: ${fetchErrorMessage(error)}.${warning}`);
       }
+      const data = await response.json();
+      portableState.lastServerStatus = "online";
+      if (!response.ok || String(data.status || "ok").toLowerCase() === "erro") {
+        throw new Error(data.mensagem || data.message || "Falha no servidor CAIJ");
+      }
+      return data;
     }
-    portableState.lastServerStatus = "offline";
-    throw new Error(`Servidor CAIJ indisponivel. ${lastError && lastError.message ? lastError.message : "Verifique a rede."}`);
   }
 
   function cpuShort(value) {
     const text = String(value || "").trim();
     const apple = text.match(/Apple\s+(M\d+[^\s(]*)/i);
     if (apple) return `Apple ${apple[1]}`;
+    const fullModel = text.match(/\bi([3579])[-\s]?(\d{4,5})([A-Z]{0,3}\d{0,2})\b/i);
+    if (fullModel) return `i${fullModel[1]}-${fullModel[2]}${fullModel[3].toUpperCase()}`;
     const intel = text.match(/i([3579]).*?(\d{4,5})/i);
     if (!intel) return text || "N/A";
     const model = intel[2];
@@ -111,12 +193,7 @@
   }
 
   function diskShort(value) {
-    const text = String(value || "").trim();
-    if (/1TB|\b(931|1000|1024)GB\b/i.test(text)) return "1TB SSD";
-    if (/\b(476|480|494|500|512)GB\b/i.test(text)) return "512GB SSD";
-    if (/\b(238|240|250|256)GB\b/i.test(text)) return "256GB SSD";
-    if (/\b(119|120|128)GB\b/i.test(text)) return "128GB SSD";
-    return text.slice(0, 18) || "N/A";
+    return window.CAIJ_STORAGE?.normalize(value) || String(value || "").trim() || "N/A";
   }
 
   function gpuShort(value) {
@@ -176,7 +253,11 @@
     const time = now.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
     const displayName = String(technician || "").trim().toLowerCase().replace(/(^|\s)\p{L}/gu, (letter) => letter.toUpperCase());
     const type = String(equipmentType || portableState.equipmentType || "Notebook");
-    const configuration = /^Monitor$/i.test(type) ? "" : configSummary(info || {}, device3u);
+    const configuration = /^Monitor$/i.test(type) ? ""
+      : /^Celular$/i.test(type) ? configSummary({}, device3u || {
+        imei: info?.imei, armazenamento: info?.disco, ram: info?.ram,
+        bateria: info?.bateria, ciclos: info?.ciclos,
+      }) : configSummary(info || {}, device3u);
     const lines = [String(text || "").trim(), configuration].filter(Boolean);
     return `${date} - ${time}${displayName ? ` - ${displayName}` : ""}: ${lines.join("\n")}`;
   }
@@ -191,20 +272,40 @@
       serial: String(order?.garantia || order?.serial || "-").trim(),
       statusOs: String(order?.statusOs || "").trim(),
       online: Boolean(order),
-      message: order ? "" : "OS não localizada no Altertag",
+      message: order ? "" : "Rastreador não localizado no Altertag",
     };
   }
 
   async function portableApi(path, body) {
-    if (path === "/api/state") return publicState();
+    if (path === "/api/print-diagnostics") {
+      return central("/diagnostico-impressao", undefined, 6000);
+    }
+    if (path === "/api/state") {
+      if (portableState.deviceReading === 'pending' && runtime.localBridgeUrl) {
+        const response = await fetchWithTimeout(`${runtime.localBridgeUrl}/device-info`, {}, 3000);
+        const device = await response.json();
+        if (!response.ok) throw new Error(device.message || 'Falha ao ler o equipamento.');
+        if (!device.pending) {
+          portableState.deviceReading = device.ok ? 'ready' : 'error';
+          portableState.deviceReadingError = device.message || '';
+          if (device.ok) portableState.info = device.info || {};
+        }
+      }
+      return publicState();
+    }
     if (path === "/api/info") {
+      if (portableState.deviceReading === 'pending') throw new Error('Aguarde a leitura do equipamento terminar.');
       portableState.info = { ...portableState.info, ...(body.info || {}) };
+      if (portableState.deviceReading === 'error' && portableState.info.modelo && portableState.info.serial) {
+        portableState.deviceReading = 'ready';
+        portableState.deviceReadingError = '';
+      }
       if (body.equipmentType) portableState.equipmentType = body.equipmentType;
       return publicState();
     }
     if (path === "/api/set-os") {
       portableState.osNumero = Math.max(Number(body.osNumero) || 1, 1);
-      portableState.manualOsSet = isWindows;
+      portableState.manualOsSet = true;
       return { ok: true, osNumero: portableState.osNumero, state: publicState() };
     }
     if (path === "/api/native-command") {
@@ -244,9 +345,15 @@
     }
     if (path === "/api/os-detail") {
       const osNumber = Number(body.osNumero || portableState.osNumero || 0);
-      if (!osNumber) throw new Error("Informe uma OS válida.");
+      if (!osNumber) throw new Error("Informe um rastreador válido.");
       const data = await central(`/os-detalhe?osNumero=${osNumber}&produtos=1`, undefined, 8000);
       return { ok: true, detail: normalizeOsDetail(data.ordem, osNumber) };
+    }
+    if (path === "/api/os-by-serial") {
+      const serial = String(body.serial || "").trim();
+      if (!serial) throw new Error("Informe a serial do equipamento.");
+      const data = await central(`/os-por-serial?serial=${encodeURIComponent(serial)}`, undefined, 45000);
+      return { ok: true, ordens: Array.isArray(data.ordens) ? data.ordens : [] };
     }
     if (path === "/api/products") {
       const term = String(body.term || "").trim();
@@ -255,6 +362,7 @@
       return { ok: true, produtos: data.produtos || [], fonte: data.fonte || "Altertag", message: data.mensagem || "Produtos encontrados." };
     }
     if (path === "/api/create-os") {
+      if (portableState.deviceReading !== 'ready') throw new Error('A leitura do equipamento ainda nao esta pronta.');
       const product = body.produto || {};
       const device3u = body.device3u || null;
       const equipmentType = device3u ? "Celular" : (body.equipmentType || portableState.equipmentType);
@@ -282,9 +390,14 @@
       return { ok: true, osCriada: formatOs(created), proximaOs: formatOs(data.proximoDisponivel || created + 1), observacao: observation, state: publicState(), response: data };
     }
     if (path === "/api/print") {
+      if (portableState.deviceReading !== 'ready') throw new Error('A leitura do equipamento ainda nao esta pronta.');
       const grade = String(body.grade || "A").toUpperCase();
       const obs = String(body.obs || "").trim();
       if ((grade === "B" || grade === "C") && !obs) throw new Error(`Observacoes sao obrigatorias para Grade ${grade}.`);
+      if (body.includeOs && Number(body.osNumero) > 0) {
+        portableState.osNumero = Number(body.osNumero);
+        portableState.manualOsSet = true;
+      }
       portableState.info = { ...portableState.info, ...(body.info || {}) };
       if (body.equipmentType) portableState.equipmentType = body.equipmentType;
       if (body.includeOs && !portableState.pendingCreatedOs && !portableState.manualOsSet) {
@@ -294,14 +407,22 @@
         } catch (_) {}
       }
       const payload = printPayload(portableState.info, grade, obs, Boolean(body.includeOs));
-      const data = await central("/imprimir", payload, 22000);
+      // Impressao nunca e repetida automaticamente: se a resposta cair depois
+      // de o spooler aceitar, uma segunda tentativa poderia duplicar a etiqueta.
+      const data = await printOnce(payload);
       portableState.pendingCreatedOs = 0;
       portableState.manualOsSet = false;
+      const trackerPayload = {
+        osNumero: Number(payload.os || 0),
+        grade: payload.grade,
+        serial: payload.serial,
+        observacao: payload.obs || "",
+      };
+      void central("/sincronizar-rastreador", trackerPayload, 25000).catch(() => {});
       if (body.includeOs) {
-        try {
-          const synced = await central("/status-os", undefined, 12000);
+        void central("/status-os", undefined, 12000).then((synced) => {
           portableState.osNumero = Number(synced.proximoDisponivel || portableState.osNumero + 1);
-        } catch (_) {}
+        }).catch(() => {});
       }
       const tracker = data.rastreador || null;
       return {

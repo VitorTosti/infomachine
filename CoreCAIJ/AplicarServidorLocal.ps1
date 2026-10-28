@@ -15,6 +15,7 @@ function Get-CaijFileSha256 {
 $sourcePath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'ServidorImpressao.ps1'))
 $watchdogSourcePath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot 'ServidorImpressaoWatchdog.ps1'))
 $desktopPath = [IO.Path]::GetFullPath([Environment]::GetFolderPath('Desktop'))
+$backupDirectory = [IO.Path]::GetFullPath((Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'CAIJ\Servidor\Backups'))
 $targetPath = [IO.Path]::GetFullPath((Join-Path $desktopPath 'ServidorImpressao.ps1'))
 $watchdogTargetPath = [IO.Path]::GetFullPath((Join-Path $desktopPath 'ServidorImpressaoWatchdog.ps1'))
 $startupPath = [Environment]::GetFolderPath('Startup')
@@ -71,7 +72,8 @@ if ($LASTEXITCODE -ne 0 -or $urlAclOutput -notmatch [regex]::Escape($urlPrefix))
 
 $backupPath = $null
 if ($sourceHash -ne $targetHash -and (Test-Path -LiteralPath $targetPath -PathType Leaf)) {
-    $backupPath = Join-Path $desktopPath ('ServidorImpressao.backup-{0}.ps1' -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    New-Item -ItemType Directory -Path $backupDirectory -Force | Out-Null
+    $backupPath = Join-Path $backupDirectory ('ServidorImpressao.backup-{0}.ps1' -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
     Copy-Item -LiteralPath $targetPath -Destination $backupPath -Force
 }
 if ($sourceHash -ne $targetHash) {

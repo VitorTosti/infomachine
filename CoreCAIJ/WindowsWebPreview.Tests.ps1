@@ -1,31 +1,54 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot
-$launcher = Get-Content -LiteralPath (Join-Path $root 'TestarInterfaceWindows.bat') -Raw
-$preview = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'InfoNotebookWindowsPreview.ps1') -Raw
-$html = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'mac-ui\index.html') -Raw
-$app = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'mac-ui\app.js') -Raw
-$style = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'mac-ui\style.css') -Raw
-$portable = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'mac-ui\portable.js') -Raw
+$launcher = Get-Content -LiteralPath (Join-Path $root 'TestarInterfaceWindows.bat') -Raw -Encoding UTF8
+$preview = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'InfoNotebookWindowsPreview.ps1') -Raw -Encoding UTF8
+$html = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'mac-ui\index.html') -Raw -Encoding UTF8
+$app = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'mac-ui\app.js') -Raw -Encoding UTF8
+$style = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'mac-ui\style.css') -Raw -Encoding UTF8
+$portable = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'mac-ui\portable.js') -Raw -Encoding UTF8
+
+$previewAst = [System.Management.Automation.Language.Parser]::ParseInput($preview, [ref]$null, [ref]$null)
+$modelFunctionAst = $previewAst.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Get-PreferredWindowsModelName'
+}, $true)
+if (-not $modelFunctionAst) { throw 'Funcao de selecao do modelo Windows nao encontrada.' }
+Invoke-Expression $modelFunctionAst.Extent.Text
+$dellModel = Get-PreferredWindowsModelName -Manufacturer 'Dell Inc.' -Candidates @('Latitude 5320', 'Latitude', 'Latitude 5320', 'Latitude')
+if ($dellModel -ne 'Dell Latitude 5320') { throw "Modelo Dell incompleto: $dellModel" }
 
 $checks = @(
     @($launcher, 'InfoNotebookWindowsPreview.ps1'),
     @($preview, "platform = 'windows'"),
     @($preview, "'--inprivate'"),
+    @($preview, "'--start-fullscreen'"),
     @($preview, '--user-data-dir='),
+    @($preview, '--auto-accept-camera-and-microphone-capture'),
     @($preview, 'Send-LocalUiFile'),
+    @($preview, "'/observation.js' = @('observation.js', 'text/javascript; charset=utf-8')"),
     @($preview, 'function Test-LocalClientDisconnect'),
     @($preview, 'http://127.0.0.1:$localBridgePort/'),
     @($preview, 'Win32_ComputerSystemProduct'),
+    @($preview, 'SystemProductName'),
     @($preview, 'function Get-WindowsBatterySummary'),
     @($preview, 'powercfg.exe'),
     @($preview, '/batteryreport /output $reportPath /xml'),
     @($html, 'id="platformName"'),
+    @($html, '<link rel="icon" type="image/svg+xml" href="app-icon.svg">'),
+    @($preview, "'/app-icon.svg' = @('app-icon.svg', 'image/svg+xml')"),
     @($app, 'isWindowsPreview'),
     @($app, 'Central de testes Windows'),
+    @($app, 'windows-function-row'),
+    @($app, 'windows-navigation-keys'),
+    @($app, 'windows-numpad'),
+    @($app, 'NumpadEnter: "NUMENTER"'),
     @($app, 'Privacidade e segurança > Câmera ou Microfone'),
     @($app, 'normalizeStorage'),
     @($app, 'refreshOsVerification'),
+    @($app, 'scheduleOsIdentification'),
+    @($app, 'addEventListener("input", scheduleOsIdentification)'),
+    @($app, 'qs("createCurrentOs").addEventListener("input", scheduleOsIdentification)'),
     @($html, 'id="currentConfigCard"'),
     @($html, 'id="read3uTools"'),
     @($html, 'id="osVerification"'),
@@ -37,16 +60,18 @@ $checks = @(
     @($html, 'id="testsView"'),
     @($html, 'id="createOsView"'),
     @($html, 'id="createCurrentOs"'),
+    @($html, 'aria-label="Alterar rastreador atual"'),
     @($html, 'class="thermal-label"'),
     @($html, 'id="labelPreviewModel"'),
     @($html, 'id="printOsInput"'),
     @($html, 'id="toggleLabelEditor"'),
     @($html, 'id="labelEditForm"'),
     @($html, 'aria-current="page"'),
-    @($html, 'class="os-box hero-os"'),
-    @($html, 'class="brand-copy hidden"'),
+    @($html, 'class="os-box hero-os home-os-band"'),
+    @($html, 'class="brand-copy"'),
     @($html, 'class="equipment-summary"'),
-    @($html, 'OS selecionada'),
+    @($html, '<span>Rastreador</span>'),
+    @($html, 'aria-label="Número do rastreador"'),
     @($html, 'id="workflowTitle"'),
     @($html, 'id="refreshReading"'),
     @($html, 'id="copyDeviceInfo"'),
@@ -69,11 +94,11 @@ $checks = @(
     @($app, 'function refreshDeviceReading()'),
     @($app, 'function copyDeviceInfo()'),
     @($app, 'function updateSessionClock()'),
-    @($app, 'function syncCompletedTestsToObservations(pending)'),
+    @($app, 'function syncCompletedTestsToRecord(pending)'),
     @($html, 'id="finishTests"'),
     @($html, 'id="testsCompletion"'),
-    @($html, 'class="tests-head-icon"'),
-    @($html, 'class="test-icon"'),
+    @($html, 'class="tests-overview" aria-label="Resumo dos testes"'),
+    @($html, 'class="test-list-head"'),
     @($app, 'caij:last-print'),
     @($app, 'caij:print-history'),
     @($portable, 'automaticObservation'),
@@ -117,6 +142,16 @@ $checks = @(
     @($style, '@keyframes action-spin')
 )
 
+if (-not ($app -match 'functionKeys[\s\S]*PRINTSCREEN[\s\S]*SCROLLLOCK[\s\S]*PAUSE') -or
+    -not ($app -match 'navigationKeys[\s\S]*INSERT[\s\S]*PAGEDOWN[\s\S]*ARROWLEFT') -or
+    -not ($app -match 'numpadKeys[\s\S]*NUMLOCK[\s\S]*NUMENTER[\s\S]*NUM0')) {
+    throw 'O teclado Windows deve reproduzir os blocos principal, navegacao e numerico da referencia.'
+}
+if (-not ($style -match '\.windows-keyboard-grid[\s\S]*grid-template-columns:\s*var\(--main-width\) var\(--key\) var\(--numpad-width\)') -or
+    -not ($style -match '\.keyboard-map\.windows-keyboard kbd\.pressed[\s\S]*background:\s*#fff')) {
+    throw 'O teclado Windows deve manter proporcoes fisicas e destacar as teclas confirmadas.'
+}
+
 if ($html.Contains('id="printHero"')) {
     throw 'O topo nao deve repetir o botao de imprimir etiqueta.'
 }
@@ -132,7 +167,7 @@ if ($html -match 'id="testsDialog"|id="createOsDialog"') {
 if (-not ($app -match 'home:\s*"homeView"[\s\S]*labels:\s*"labelsView"[\s\S]*tests:\s*"testsView"[\s\S]*createOs:\s*"createOsView"')) {
     throw 'A navegacao principal deve controlar as quatro paginas internas.'
 }
-if (-not ($html -match 'create-os-head-actions[\s\S]*OS ATUAL[\s\S]*id="createCurrentOs"')) {
+if (-not ($html -match 'create-os-head-actions[\s\S]*RASTREADOR ATUAL[\s\S]*id="createCurrentOs"')) {
     throw 'A pagina Cadastrar OS deve destacar a OS atual no cabecalho.'
 }
 if (-not ($app -match 'osNumberFromInput\(\)[\s\S]*createCurrentOs[\s\S]*showAppView\("createOs"\)')) {
@@ -162,11 +197,28 @@ if (-not ($style -match '\.topbar,\s*\.windows-preview \.topbar\s*\{[\s\S]*?back
 if (-not ($style -match '\.home-workspace\s*\{\s*align-items:\s*start;\s*\}')) {
     throw 'Os paineis do Menu nao devem ser esticados e criar espaco vazio.'
 }
-if (-not ($html -match '<section class="hero-strip">[\s\S]*?class="equipment-summary"[\s\S]*?class="os-box hero-os"')) {
-    throw 'A OS selecionada deve ficar na mesma faixa do equipamento conectado.'
+if (-not ($html -match 'class="home-device-column"[\s\S]*?class="panel device-panel"[\s\S]*?class="os-box hero-os home-os-band"')) {
+    throw 'A OS selecionada deve ficar logo abaixo dos dados do equipamento no Menu.'
 }
 if ($html -match 'hero-action-index|hero-action-copy') {
     throw 'A navegacao superior deve usar somente rotulos curtos.'
+}
+if (-not ($html -match 'id="openMenu"[\s\S]*?<svg[\s\S]*?<span>Menu</span>') -or
+    -not ($html -match 'id="openLabels"[\s\S]*?<svg[\s\S]*?<span>Etiquetas</span>') -or
+    -not ($html -match 'id="openTests"[\s\S]*?<svg[\s\S]*?<span>Testes</span>') -or
+    -not ($html -match 'id="openCreateOs"[\s\S]*?<svg[\s\S]*?<span>Cadastrar rastreador</span>')) {
+    throw 'A navegacao principal deve combinar icones discretos com rotulos curtos.'
+}
+if (-not ($style.Contains('Identidade premium CAIJ')) -or
+    -not ($style.Contains('font-feature-settings: "calt", "kern", "liga", "ss03"')) -or
+    -not ($style.Contains('.app-view:not(.hidden) { animation: caij-view-enter'))) {
+    throw 'A interface deve aplicar a camada visual premium, tipografia refinada e transicao de pagina.'
+}
+if (-not ($html -match 'class="create-flow-rail"[\s\S]*Técnico[\s\S]*Produto[\s\S]*Dados[\s\S]*Criar rastreador') -or
+    -not ($html -match 'class="create-os-heading-icon"[\s\S]*id="createOsTitle"') -or
+    -not ($style.Contains('.create-os-page .create-os-actions')) -or
+    -not ($style -match '\.create-os-page \.create-os-actions\s*\{[\s\S]*?position:\s*sticky;')) {
+    throw 'O cadastro de OS deve apresentar as quatro etapas, cabecalho visual e acao final sempre acessivel.'
 }
 $homeIndex = $html.IndexOf('id="homeView"')
 $labelsIndex = $html.IndexOf('id="labelsView"')
@@ -174,11 +226,30 @@ $printIndex = $html.IndexOf('class="panel print-panel"')
 if ($homeIndex -lt 0 -or $labelsIndex -le $homeIndex -or $printIndex -le $labelsIndex) {
     throw 'A impressao deve ficar somente na pagina Etiquetas, depois da pagina inicial.'
 }
+$printButtonIndex = $html.IndexOf('id="printBtn"', $printIndex)
+$verificationIndex = $html.IndexOf('id="osVerification"', $labelsIndex)
+$labelToolbarIndex = $html.IndexOf('class="label-edit-toolbar"', $printIndex)
+if ($printButtonIndex -le $printIndex -or $verificationIndex -le $labelsIndex -or
+    $verificationIndex -ge $printIndex -or $labelToolbarIndex -le $printButtonIndex -or
+    -not ($html -match 'class="print-command-bar"[\s\S]*id="syncOs"[\s\S]*id="printBtn"')) {
+    throw 'A area de preparo deve manter conferencia, campos e impressao na aba Etiquetas.'
+}
+if (-not ($html.Contains('class="thermal-identification"') -and
+    $html.Contains('class="label-preview-support"') -and
+    $style.Contains('.labels-view .thermal-identification') -and
+    $style.Contains('.labels-view .label-preview-support') -and
+    $style.Contains('@media (max-width: 1380px)'))) {
+    throw 'A pagina Etiquetas deve alinhar a previa fisica, usar o espaco inferior e adaptar as colunas.'
+}
 if (-not ($app.Contains('window.scrollTo({ top: 0, behavior: "smooth" })'))) {
     throw 'A aba Menu deve retornar para a pagina principal.'
 }
 if (-not ($html -match 'id="statusLine" hidden')) {
     throw 'A linha de status nao deve ficar visivel na interface principal.'
+}
+if (-not ($html -match 'id="skipActiveTest"[\s\S]*id="failAndNextTest"[\s\S]*id="passAndNextTest"[\s\S]*id="activeTestBody"') -or
+    -not ($app -match 'function\s+completeActiveTest[\s\S]*await openTest\(nextTest\)')) {
+    throw 'O teste aberto deve permitir registrar o resultado e avancar pela sequencia sem voltar para a lista.'
 }
 if (-not ($html -match 'id="labelEditForm"[\s\S]*name="modelo"[\s\S]*name="serial"[\s\S]*name="cpu"[\s\S]*name="ram"[\s\S]*name="disco"[\s\S]*name="gpu"[\s\S]*name="bateria"')) {
     throw 'A pagina Etiquetas deve permitir editar manualmente todos os dados impressos.'
@@ -189,11 +260,22 @@ if (-not ($app -match 'printOsInput[\s\S]*persistEditedOs\(\)[\s\S]*refreshOsVer
 if (-not ($app -match 'printBtn[\s\S]*api\("/api/print", body\)[\s\S]*showAppView\("home"\)')) {
     throw 'Depois de uma impressao confirmada, a interface deve voltar ao Menu.'
 }
-if (-not ($app -match 'submitCreateOs[\s\S]*setButtonBusy\(createButton, true, "Criando OS\.\.\."\)[\s\S]*api\("/api/create-os"[\s\S]*finally[\s\S]*setButtonBusy\(createButton, false\)')) {
+if (-not ($app -match 'submitCreateOs[\s\S]*setButtonBusy\(createButton, true, "Criando rastreador\.\.\."\)[\s\S]*api\("/api/create-os"[\s\S]*finally[\s\S]*setButtonBusy\(createButton, false\)')) {
     throw 'O botao Criar OS deve mostrar o andamento e bloquear cliques duplicados.'
 }
 if (-not ($app -match 'printBtn[\s\S]*setButtonBusy\(printButton, true, "Imprimindo etiqueta\.\.\."\)[\s\S]*api\("/api/print", body\)[\s\S]*finally[\s\S]*setButtonBusy\(printButton, false\)')) {
     throw 'O botao Imprimir etiqueta deve mostrar o andamento e bloquear cliques duplicados.'
+}
+if (-not ($portable -match 'void central\("/sincronizar-rastreador"[\s\S]*void central\("/status-os"')) {
+    throw 'A interface deve liberar o botao apos imprimir e concluir rastreador e proxima OS em segundo plano.'
+}
+if (-not ($portable -match 'async function\s+findReachableServer[\s\S]*Promise\.any') -or
+    -not ($portable -match 'async function\s+printOnce\(payload, timeout = 35000\)[\s\S]*fetchWithTimeout\(`\$\{base\}/imprimir`') -or
+    -not ($portable -match 'const data = await printOnce\(payload\)')) {
+    throw 'A impressao deve localizar o servidor em paralelo e enviar somente uma requisicao com timeout definido.'
+}
+if ($portable -match 'central\("/imprimir"') {
+    throw 'A impressao nao pode repetir automaticamente o POST em varios enderecos.'
 }
 $printHandlerStart = $app.IndexOf('qs("printBtn").addEventListener')
 $printHandlerEnd = $app.IndexOf('qs("fullscreenBtn").addEventListener', $printHandlerStart)
@@ -201,7 +283,7 @@ $printHandlerText = $app.Substring($printHandlerStart, $printHandlerEnd - $print
 if ($printHandlerText -match 'refreshOsVerification') {
     throw 'A impressao nao deve aguardar uma segunda consulta remota da OS antes de chegar ao spooler.'
 }
-if (-not ($printHandlerText -match 'persistEditedOs\(\)[\s\S]*api\("/api/print", body\)')) {
+if (-not ($printHandlerText -match 'persistEditedOs\([^)]*\)[\s\S]*api\("/api/print", body\)')) {
     throw 'A impressao rapida ainda deve persistir a OS selecionada antes do envio.'
 }
 if (-not ($html -match 'class="alert-created"[\s\S]*id="alertCreatedOs"[\s\S]*class="alert-next"[\s\S]*id="alertNextOs"')) {
@@ -222,11 +304,22 @@ if (-not ($app -match 'workflowOverall"\)\.textContent = `\$\{completed\} de 4 e
 if (-not ($app -match 'reviewSerialDivergence[\s\S]*showAppView\("labels"\)[\s\S]*refreshOsVerification')) {
     throw 'A divergencia de serial deve oferecer uma acao segura para conferir os dados.'
 }
-if (-not ($app -match 'testsCompletion"\)\.textContent = `\$\{completion\}%`[\s\S]*aria-pressed')) {
+if (-not ($app -match 'testsCompletion"\)\.textContent = `\$\{passed \+ failed\} de \$\{values.length\} concluídos`[\s\S]*aria-pressed')) {
     throw 'A Central de Testes deve mostrar progresso geral e selecao acessivel dos resultados.'
 }
 if (-not ($style -match '\.tests-page \.test-row\.passed[\s\S]*\.tests-page \.test-row\.failed[\s\S]*\.test-actions button\[data-action="pass"\]\.selected')) {
     throw 'A Central de Testes deve diferenciar visualmente estados pendente, aprovado e reprovado.'
+}
+if (-not ($preview.Contains("'--auto-accept-camera-and-microphone-capture'")) -or
+    -not ($preview.Contains('"--user-data-dir=$previewProfile"')) -or
+    -not ($app -match 'confirmCameraTestPermission\(\)[\s\S]*requestUserMediaWithStartupRetry\(\{ video: true')) {
+    throw 'No Windows, a confirmacao CAIJ deve ser a unica etapa antes da captura no perfil isolado do aplicativo.'
+}
+if (-not ($app -match 'function\s+requestUserMediaWithStartupRetry[\s\S]*attempts\s*=\s*isWindowsPreview\s*\?\s*3\s*:\s*1[\s\S]*450 \* \(attempt \+ 1\)')) {
+    throw 'A primeira liberacao da camera no Windows deve ser repetida automaticamente antes de exibir erro.'
+}
+if ($preview -match 'Add-TemporaryEdgeCapturePolicy|VideoCaptureAllowedUrls|AudioCaptureAllowedUrls|HKCU:\\SOFTWARE\\Policies\\Microsoft\\Edge') {
+    throw 'O InfoNotebook nao deve depender de acesso ao Registro para liberar camera e microfone.'
 }
 if (-not ($preview -match '\$lenovoPreflightPath\s*=\s*Join-Path \$PSScriptRoot ''PrepararLenovo\.ps1''')) {
     throw 'A interface Windows deve preservar o verificador da tecla de interrogacao Lenovo.'
@@ -272,7 +365,7 @@ if (-not ($app -match 'windowsFields\s*=\s*\["modelo",\s*"serial",\s*"cpu",\s*"d
 if (-not ($app -match 'key === "bateria" \? "full"')) {
     throw 'No Windows, Bateria deve fechar toda a base da grade.'
 }
-if (-not ($app.Contains('isWindowsPreview ? windowsKeyboardRows : macKeyboardRows'))) {
+if (-not ($app -match 'if \(isWindowsPreview\)[\s\S]*windows-keyboard[\s\S]*else[\s\S]*mac-keyboard')) {
     throw 'O mapa de teclado deve separar teclas Windows e Mac.'
 }
 if (-not ($app.Contains('return `TESTES: ${overall} | ${details}`'))) {
@@ -298,6 +391,30 @@ if (-not ($preview.Contains("*[local-name()='DesignCapacity']")) -or
     -not ($preview.Contains("*[local-name()='FullChargeCapacity']")) -or
     -not ($preview.Contains('100 * $fullTotal / $designTotal'))) {
     throw 'A saude da bateria deve comparar capacidade maxima atual com capacidade de projeto.'
+}
+if (-not ($preview.Contains("@('TotalDiskCapacity', 'TotalDataCapacity')"))) {
+    throw 'A leitura do 3uTools deve priorizar a capacidade fisica nominal e usar a capacidade de dados apenas como fallback.'
+}
+if (-not ($preview.Contains("'MK473'='64GB'"))) {
+    throw 'O leitor web deve reconhecer o iPad 9 MK473 como 64GB quando a consulta USB estiver indisponivel.'
+}
+if ($preview -notmatch 'Get-CaijWindowsStorageSummary\s+-Disks\s+\$allDisks' -or
+    -not ((Get-Content -LiteralPath (Join-Path $PSScriptRoot 'WindowsStorage.ps1') -Raw) -match 'InterfaceType[\s\S]*?Removable\|External')) {
+    throw 'A leitura do Windows deve ignorar o pendrive e outros discos removiveis.'
+}
+if ($preview -notmatch 'Get-CimInstance\s+Win32_PhysicalMemory' -or
+    $preview -notmatch 'function\s+Get-WindowsRamSummary[\s\S]*?Measure-Object\s+-Property\s+Capacity\s+-Sum') {
+    throw 'A RAM do Windows deve usar a capacidade instalada dos modulos fisicos.'
+}
+if ($preview -notmatch 'Win32_PhysicalMemoryArray' -or $preview -notmatch 'SMBIOSMemoryType' -or
+    $app -notmatch 'state\.info\.ramDetalhes' -or $html -notmatch 'name="ramDetalhes"') {
+    throw 'A leitura de RAM deve mostrar geracao, posicoes e limite de identificacao de memoria soldada.'
+}
+if ($preview -notmatch 'function\s+ConvertTo-MarketedMemory') {
+    throw 'A RAM deve ser normalizada para a capacidade comercial instalada.'
+}
+if ($preview -notmatch '\$isIpadWithoutImei\s*=\s*\$productType\s*-match\s*''\^iPad''\s*-and\s*\$imei\.Length\s*-eq\s*0') {
+    throw 'A importacao web deve aceitar iPad Wi-Fi sem IMEI.'
 }
 
 Write-Output 'OK: Windows web preview tests'

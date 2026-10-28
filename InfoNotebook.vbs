@@ -13,6 +13,12 @@ legacyScriptPath = fso.BuildPath(coreDir, "InfoNotebook.ps1")
 serverConfigPath = fso.BuildPath(coreDir, "caij_servidor_url.txt")
 versionPath = fso.BuildPath(coreDir, "caij_versao_app.txt")
 
+If WScript.Arguments.Count = 0 And fso.FileExists(fso.BuildPath(coreDir, "AbrirInfoNotebook.ps1")) Then
+    command = "powershell.exe -NoLogo -NoProfile -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File " & Chr(34) & fso.BuildPath(coreDir, "AbrirInfoNotebook.ps1") & Chr(34)
+    shell.Run command, 0, False
+    WScript.Quit
+End If
+
 Function ReadSmallText(path)
     Dim fileHandle
     ReadSmallText = ""
@@ -62,14 +68,15 @@ Function ProbeUpdateServer(baseUrl, localVersion)
         If remoteVersion <> "" Then
             updateServerFound = True
             SaveServerUrl baseUrl
-            ProbeUpdateServer = (remoteVersion <> localVersion)
+            ' Versoes publicadas seguem yyyy.MM.dd.HHmmss: nunca voltar para um pacote antigo.
+            ProbeUpdateServer = (StrComp(remoteVersion, localVersion, 0) > 0)
         End If
     End If
     On Error GoTo 0
 End Function
 
 Function NeedsUpdate()
-    Dim localVersion, baseUrl, fallbackUrl, fallbackIpUrl
+    Dim localVersion, baseUrl, fallbackUrl, fallbackIpUrl, nasUrl, nasIpUrl
     NeedsUpdate = False
     updateServerFound = False
 
@@ -85,6 +92,24 @@ Function NeedsUpdate()
         Exit Function
     End If
     If updateServerFound Then Exit Function
+
+    nasUrl = "http://NAS-CAIJ:9100"
+    If LCase(baseUrl) <> LCase(nasUrl) Then
+        If ProbeUpdateServer(nasUrl, localVersion) Then
+            NeedsUpdate = True
+            Exit Function
+        End If
+        If updateServerFound Then Exit Function
+    End If
+
+    nasIpUrl = "http://192.168.15.200:9100"
+    If LCase(baseUrl) <> LCase(nasIpUrl) Then
+        If ProbeUpdateServer(nasIpUrl, localVersion) Then
+            NeedsUpdate = True
+            Exit Function
+        End If
+        If updateServerFound Then Exit Function
+    End If
 
     fallbackUrl = "http://INFOCAIJ:9100"
     If LCase(baseUrl) <> LCase(fallbackUrl) Then
@@ -109,4 +134,4 @@ End If
 If Not fso.FileExists(scriptPath) Then scriptPath = legacyScriptPath
 command = "powershell.exe -NoLogo -NoProfile -NonInteractive -STA -ExecutionPolicy Bypass -WindowStyle Hidden -File " & Chr(34) & scriptPath & Chr(34)
 
-shell.Run command, 0, False
+shell.Run command, 0, True

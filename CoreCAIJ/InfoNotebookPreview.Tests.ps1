@@ -27,6 +27,7 @@ Assert-True ($scriptText -match "Preparando o InfoNotebook") 'loading comunica a
 Assert-True ($scriptText -match "\`$splashStatusCard\.BackColor\s*=\s*\[System\.Drawing\.Color\]::FromArgb\(15,\s*18,\s*29\)") 'loading segue a superficie do novo tema'
 Assert-True ($scriptText -notmatch 'New-Object System\.Windows\.Forms\.OpenFileDialog') 'loading nao interrompe a abertura para solicitar logo'
 Assert-True (([regex]::Matches($scriptText, 'Get-CimInstance Win32_VideoController')).Count -eq 1) 'hardware consulta controladores de video uma unica vez'
+Assert-True ($scriptText -match 'function Get-PreferredWindowsModelName[\s\S]*SystemProductName[\s\S]*Get-NotebookInfo') 'coleta escolhe o modelo comercial completo entre WMI e BIOS'
 Assert-True ($launcherBatText -match 'wscript\.exe\s+//B\s+//Nologo') 'atalho bat delega a inicializacao invisivel'
 Assert-True ($launcherBatText -notmatch 'powershell\.exe') 'atalho bat nao abre PowerShell diretamente'
 Assert-True ($launcherVbsText -match 'shell\.Run\s+command,\s*0,\s*False') 'launcher executa sem janela de console'
@@ -397,6 +398,7 @@ Assert-True ($scriptText -match "\`$info\.CPU\s+-match\s+'\(\?i\).*AMD.*Ryzen") 
 Assert-True ($scriptText -match 'function\s+Get-3uToolsDeviceInfo') 'integracao possui leitor local do 3uTools'
 Assert-True ($scriptText -match "\`$btnLer3uTools\.Text\s*=\s*'Ler do 3uTools'") 'modo celular oferece leitura do 3uTools'
 Assert-True ($scriptText -match "InternationalMobileEquipmentIdentity") 'leitor importa IMEI1 do 3uTools'
+Assert-True ($scriptText -match '\$isIpadWithoutImei\s*=\s*\$productType\s*-match\s*''\^iPad''\s*-and\s*\$imei\.Length\s*-eq\s*0') 'leitor aceita iPad Wi-Fi sem IMEI'
 Assert-True ($scriptText -match "SerialNumber") 'leitor importa Serial Number do 3uTools'
 Assert-True ($scriptText -match "cache\\files\\deviceinfo\.txt") 'leitor usa cache alternativo de IMEI para iPhone nao ativado'
 Assert-True ($scriptText -match "serialLinha\s+-eq\s+\`$serial") 'cache alternativo relaciona IMEI ao serial correto'
@@ -410,7 +412,7 @@ Assert-True ($scriptText -match "'MHDH3'='128GB'") 'iPhone MHDH3 resolve automat
 Assert-True ($scriptText -match '\$storage\s*=\s*Get-AppleStorageFromModelNumber\s+-ModelNumber') 'leitura usa o modelo quando o armazenamento USB nao responde'
 Assert-True ($scriptText -match '\$ram\s*=\s*Get-AppleDeviceRam\s+-ProductType\s+\$productType\s+-Armazenamento\s+\$storage') 'leitura combina identificador 3uTools e armazenamento para resolver RAM'
 Assert-True ($scriptText -notmatch 'function\s+Confirm-3uToolsTestsStatus') 'triagem celular nao pergunta pelo resultado dos testes 3uTools'
-Assert-True ($scriptText -match 'com\.apple\.disk_usage\s+-k\s+TotalDataCapacity') 'armazenamento consulta a capacidade total do iPhone'
+Assert-True ($scriptText -match "@\('TotalDiskCapacity',\s*'TotalDataCapacity'\)") 'armazenamento prioriza a capacidade fisica nominal e usa a area de dados apenas como fallback'
 Assert-True (Test-Path -LiteralPath (Join-Path $PSScriptRoot 'tools\libimobiledevice\ideviceinfo.exe')) 'binario de leitura do armazenamento acompanha o app'
 Assert-True ($scriptText -match "ioregentry\s+AppleSmartBattery") 'leitor consulta diagnostico AppleSmartBattery'
 Assert-True ($scriptText -match "NominalChargeCapacity") 'leitor usa capacidade nominal da bateria'
@@ -484,6 +486,7 @@ foreach ($nomeFuncaoApple in @('Get-AppleDeviceRam', 'Get-AppleStorageFromModelN
 }
 Assert-True ((Get-AppleDeviceRam -ProductType 'iPhone12,1' -Armazenamento '128GB') -eq '4GB') 'RAM funcional do iPhone 11 resulta em 4GB'
 Assert-True ((Get-AppleStorageFromModelNumber -ModelNumber 'MHDH3 BR/A') -eq '128GB') 'armazenamento funcional do MHDH3 resulta em 128GB'
+Assert-True ((Get-AppleStorageFromModelNumber -ModelNumber 'MK473 BZ/A') -eq '64GB') 'iPad 9 MK473 resulta em 64GB de armazenamento'
 $info = [pscustomobject]@{
     TipoEquipamento = 'CPU'
     CPU = 'Intel Core i5 10'

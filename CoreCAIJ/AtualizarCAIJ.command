@@ -32,6 +32,8 @@ trap cleanup EXIT
 BASE_URL=""
 SERVER_CANDIDATES=(
   "$CONFIGURED_URL"
+  "http://NAS-CAIJ:9100"
+  "http://192.168.15.200:9100"
   "http://INFOCAIJ.local:9100"
   "http://INFOCAIJ:9100"
   "http://192.168.15.11:9100"
@@ -53,12 +55,29 @@ REMOTE_VERSION="$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' "$MANIFEST")"
 EXPECTED_HASH="$(sed -n 's/.*"sha256":"\([^"]*\)".*/\1/p' "$MANIFEST" | tr '[:upper:]' '[:lower:]')"
 PACKAGE_URL="$(sed -n 's/.*"packageUrl":"\([^"]*\)".*/\1/p' "$MANIFEST")"
 LOCAL_VERSION="$(tr -d '\r\n' < "$VERSION_FILE" 2>/dev/null)"
+ESSENTIAL_FILES=(
+  "$APP_ROOT/InfoNotebookMac.command"
+  "$CORE_DIR/mac-ui/index.html"
+  "$CORE_DIR/mac-ui/style.css"
+  "$CORE_DIR/mac-ui/app.js"
+  "$CORE_DIR/mac-ui/portable.js"
+  "$CORE_DIR/mac-ui/serial-os.js"
+  "$CORE_DIR/mac-ui/runtime-loader.js"
+  "$CORE_DIR/mac-ui/logo.png"
+)
+LOCAL_INSTALL_COMPLETE="sim"
+for ESSENTIAL_FILE in "${ESSENTIAL_FILES[@]}"; do
+  if [[ ! -s "$ESSENTIAL_FILE" ]]; then
+    LOCAL_INSTALL_COMPLETE="nao"
+    break
+  fi
+done
 
 if [[ -z "$REMOTE_VERSION" || -z "$EXPECTED_HASH" || -z "$PACKAGE_URL" ]]; then
   update_status "Manifesto de atualizacao invalido."
   exit 0
 fi
-if [[ "$LOCAL_VERSION" == "$REMOTE_VERSION" ]]; then
+if [[ ( "$LOCAL_VERSION" == "$REMOTE_VERSION" || "$LOCAL_VERSION" > "$REMOTE_VERSION" ) && "$LOCAL_INSTALL_COMPLETE" == "sim" ]]; then
   update_status "Versao $LOCAL_VERSION ja esta atualizada."
   exit 0
 fi

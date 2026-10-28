@@ -168,6 +168,11 @@ Assert-Equal $detalhe.Problema 'Tela quebrada' 'detalhe problema'
 Assert-Equal $detalhe.Garantia 'PF3ABC12' 'detalhe serial garantia'
 Assert-Equal $detalhe.Referencia 'GRADE B' 'detalhe referencia'
 
+$serverSource = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'ServidorImpressao.ps1') -Raw
+Assert-True ($serverSource -match 'vhsysOrdemPorNumeroCache') 'consulta de OS antiga possui cache por numero'
+Assert-True ($serverSource -match 'offset=\{2\}.*order=id_pedido&sort=desc') 'consulta de OS antiga percorre paginas da API'
+Assert-True ($serverSource -match 'nao encontrada no historico da API vhsys') 'consulta de OS antiga informa busca no historico completo'
+
 $statusPayload = New-VhsysOrdemStatusPayload -Status 'Etiqueta CAIJ impressa' -Observacao 'Serial PF3ABC12 | Grade B'
 Assert-Equal $statusPayload.tipo_status 'Etiqueta CAIJ impressa' 'payload status texto'
 Assert-Equal $statusPayload.obs_status 'Serial PF3ABC12 | Grade B' 'payload status obs'

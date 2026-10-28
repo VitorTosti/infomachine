@@ -1,6 +1,6 @@
 param(
     [string]$AppRoot = '',
-    [string]$OutputDirectory = (Join-Path ([Environment]::GetFolderPath('Desktop')) 'CAIJ-Atualizacoes'),
+    [string]$OutputDirectory = (Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'CAIJ\Servidor\Atualizacoes'),
     [string]$Version = (Get-Date -Format 'yyyy.MM.dd.HHmmss')
 )
 
@@ -18,6 +18,24 @@ function Get-CaijFileSha256 {
 }
 $scriptDirectory = Split-Path -Parent $MyInvocation.MyCommand.Path
 if (-not $AppRoot) { $AppRoot = Split-Path -Parent $scriptDirectory }
+$uiIndexPath = Join-Path $AppRoot 'CoreCAIJ\mac-ui\index.html'
+$windowsPreviewPath = Join-Path $AppRoot 'CoreCAIJ\InfoNotebookWindowsPreview.ps1'
+if (-not (Test-Path -LiteralPath $uiIndexPath -PathType Leaf) -or
+    -not (Test-Path -LiteralPath $windowsPreviewPath -PathType Leaf)) {
+    throw 'Interface Windows incompleta: indice ou servidor local ausente.'
+}
+$uiIndexText = Get-Content -LiteralPath $uiIndexPath -Raw
+$windowsPreviewText = Get-Content -LiteralPath $windowsPreviewPath -Raw
+foreach ($scriptMatch in [regex]::Matches($uiIndexText, '<script\s+src="([^"]+)"')) {
+    $scriptName = $scriptMatch.Groups[1].Value
+    if ($windowsPreviewText -notmatch [regex]::Escape("'/$scriptName'")) {
+        throw "Interface Windows nao entrega o script obrigatorio: $scriptName"
+    }
+    if ($scriptName -ne 'caij-runtime.js' -and
+        -not (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $uiIndexPath) $scriptName) -PathType Leaf)) {
+        throw "Script obrigatorio ausente da interface: $scriptName"
+    }
+}
 $rootFiles = @(
     'InfoNotebook.bat',
     'InfoNotebook.vbs',
@@ -27,8 +45,11 @@ $rootFiles = @(
     '.hidden'
 )
 $coreFiles = @(
+    'CoreCAIJ/AbrirInfoNotebook.ps1',
+    'CoreCAIJ/caij-logo.png',
     'CoreCAIJ/InfoNotebook.ps1',
     'CoreCAIJ/InfoNotebookWindowsPreview.ps1',
+    'CoreCAIJ/WindowsStorage.ps1',
     'CoreCAIJ/InfoNotebookMac.ps1',
     'CoreCAIJ/TestarNotebook.ps1',
     'CoreCAIJ/GradeRules.ps1',

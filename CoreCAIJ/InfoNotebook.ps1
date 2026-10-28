@@ -630,6 +630,33 @@ function Test-IsGenericVideoAdapterName {
     return ($Name -match '(?i)(Citrix|LogMeIn|TeamViewer|Remote|Virtual|Microsoft\s+Basic|Basic\s+Display|Adaptador\s+de\s+V.deo\s+B.sico)')
 }
 
+function Get-PreferredWindowsModelName {
+    param(
+        [string]$Manufacturer,
+        [string[]]$Candidates
+    )
+
+    $manufacturerName = ([string]$Manufacturer).Trim()
+    if ($manufacturerName -match '(?i)^Dell(?:\s+Inc\.?)?$') { $manufacturerName = 'Dell' }
+    elseif ($manufacturerName -match '(?i)^Lenovo$') { $manufacturerName = 'Lenovo' }
+
+    $validCandidates = @($Candidates | ForEach-Object { ([string]$_).Trim() } | Where-Object {
+        $_ -and
+        $_ -notmatch '^(?i:to be filled(?: by o\.e\.m\.)?|system product(?: name)?|default string|none|n/?a|unknown)$' -and
+        $_ -notmatch '^(?i:Dell Inc\.?|Dell|Lenovo|HP|Hewlett-Packard)$'
+    } | Select-Object -Unique)
+    $model = $validCandidates | Sort-Object `
+        @{ Expression = { if ($_ -match '\d') { 1 } else { 0 } }; Descending = $true }, `
+        @{ Expression = { $_.Length }; Descending = $true } | Select-Object -First 1
+    if (-not $model) { return $(if ($manufacturerName) { $manufacturerName } else { 'Notebook Windows' }) }
+
+    $model = $model -replace '^(?i:Dell Inc\.?)\s+', 'Dell '
+    if ($manufacturerName -and $model -notmatch ('(?i)^' + [regex]::Escape($manufacturerName) + '(?:\s|$)')) {
+        $model = "$manufacturerName $model"
+    }
+    return ($model -replace '\s+', ' ').Trim()
+}
+
 function Get-NotebookInfo {
     $info = [ordered]@{}
     $videoControllers = @()
@@ -640,14 +667,16 @@ function Get-NotebookInfo {
         $cs   = Get-CimInstance Win32_ComputerSystem
         $csp  = Get-CimInstance Win32_ComputerSystemProduct
         $enc  = Get-CimInstance Win32_SystemEnclosure -ErrorAction SilentlyContinue | Select-Object -First 1
-        $fab  = $cs.Manufacturer.Trim()
-        $mod  = $cs.Model.Trim()
-        $ver  = if ($csp.Version) { $csp.Version.Trim() } else { '' }
-        if ($fab -match 'Lenovo' -and $ver -and $ver -notmatch 'Default|O\.E\.M' -and $ver -ne 'Lenovo') {
-            $info.Modelo = $fab + ' ' + $ver
-        } else {
-            $info.Modelo = $fab + ' ' + $mod
-        }
+        $fab  = ([string]$cs.Manufacturer).Trim()
+        $systemFamily = ([string](Get-ItemPropertyValue -LiteralPath 'HKLM:\HARDWARE\DESCRIPTION\System\BIOS' -Name 'SystemFamily' -ErrorAction SilentlyContinue)).Trim()
+        $systemProductName = ([string](Get-ItemPropertyValue -LiteralPath 'HKLM:\HARDWARE\DESCRIPTION\System\BIOS' -Name 'SystemProductName' -ErrorAction SilentlyContinue)).Trim()
+        $info.Modelo = Get-PreferredWindowsModelName -Manufacturer $fab -Candidates @(
+            [string]$cs.Model,
+            [string]$csp.Name,
+            [string]$csp.Version,
+            $systemProductName,
+            $systemFamily
+        )
         $info.Serial = $bios.SerialNumber.Trim()
         $info.TipoEquipamento = Get-EquipamentoTipo -ComputerSystem $cs -SystemEnclosure $enc
         $info.MostrarBateria = ($info.TipoEquipamento -ne 'CPU')
@@ -1163,46 +1192,51 @@ function Get-IPhoneStorageUsb {
         throw 'Leitor USB de armazenamento nao encontrado.'
     }
 
-    $arguments = if ($Udid) {
-        '-u "{0}" -q com.apple.disk_usage -k TotalDataCapacity' -f ($Udid -replace '"', '')
-    } else {
-        '-q com.apple.disk_usage -k TotalDataCapacity'
-    }
     $startInfo = New-Object System.Diagnostics.ProcessStartInfo
     $startInfo.FileName = $deviceInfoExe
-    $startInfo.Arguments = $arguments
     $startInfo.WorkingDirectory = Split-Path -Parent $deviceInfoExe
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
 
-    $process = New-Object System.Diagnostics.Process
-    $process.StartInfo = $startInfo
-    try {
-        if (-not $process.Start()) { throw 'Nao foi possivel iniciar a leitura do armazenamento.' }
-        $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-        $stderrTask = $process.StandardError.ReadToEndAsync()
-        if (-not $process.WaitForExit(10000)) {
-            try { $process.Kill() } catch {}
-            throw 'A leitura do armazenamento excedeu 10 segundos.'
+    $capacityBytes = 0
+    $lastStorageError = ''
+    foreach ($storageKey in @('TotalDiskCapacity', 'TotalDataCapacity')) {
+        $startInfo.Arguments = if ($Udid) {
+            '-u "{0}" -q com.apple.disk_usage -k {1}' -f ($Udid -replace '"', ''), $storageKey
+        } else {
+            '-q com.apple.disk_usage -k {0}' -f $storageKey
         }
-        $stdout = [string]$stdoutTask.Result
-        $stderr = [string]$stderrTask.Result
-        if ($process.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($stdout)) {
-            $details = if ($stderr.Trim()) { $stderr.Trim() } else { 'Armazenamento do iPhone indisponivel.' }
-            throw $details
+        $process = New-Object System.Diagnostics.Process
+        $process.StartInfo = $startInfo
+        try {
+            if (-not $process.Start()) { throw 'Nao foi possivel iniciar a leitura do armazenamento.' }
+            $stdoutTask = $process.StandardOutput.ReadToEndAsync()
+            $stderrTask = $process.StandardError.ReadToEndAsync()
+            if (-not $process.WaitForExit(10000)) {
+                try { $process.Kill() } catch {}
+                throw 'A leitura do armazenamento excedeu 10 segundos.'
+            }
+            $stdout = [string]$stdoutTask.Result
+            $stderr = [string]$stderrTask.Result
+            if ($process.ExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($stdout)) {
+                throw $(if ($stderr.Trim()) { $stderr.Trim() } else { 'Armazenamento do iPhone indisponivel.' })
+            }
+            $capacityBytes = @(
+                [regex]::Matches($stdout, '(?<!\d)\d{8,15}(?!\d)') |
+                    ForEach-Object { [double]$_.Value } |
+                    Sort-Object -Descending
+            ) | Select-Object -First 1
+            if ($capacityBytes -and $capacityBytes -ge 8GB) { break }
+        } catch {
+            $lastStorageError = $_.Exception.Message
+        } finally {
+            $process.Dispose()
         }
-    } finally {
-        $process.Dispose()
     }
-
-    $capacityBytes = @(
-        [regex]::Matches($stdout, '(?<!\d)\d{8,15}(?!\d)') |
-            ForEach-Object { [double]$_.Value } |
-            Sort-Object -Descending
-    ) | Select-Object -First 1
     if (-not $capacityBytes -or $capacityBytes -lt 8GB) {
+        if ($lastStorageError) { throw $lastStorageError }
         throw 'O iPhone nao informou a capacidade total do armazenamento.'
     }
 
@@ -1276,6 +1310,7 @@ function Get-AppleStorageFromModelNumber {
         'MGJ53'='64GB';  'MGJ63'='64GB'
         'MLPF3'='128GB'; 'MPUF3'='128GB'
         'MMXF3'='64GB'
+        'MK473'='64GB'
         'MK4E3'='256GB'; 'MK4H3'='256GB'
         'MQ6T3'='256GB'
     }
@@ -1367,8 +1402,9 @@ function Get-3uToolsDeviceInfo {
             }
         }
     }
-    if (-not $serial -or $imei.Length -ne 15) {
-        throw 'O cache do 3uTools nao possui Serial Number e IMEI1 validos. Atualize a tela do aparelho e tente novamente.'
+    $isIpadWithoutImei = $productType -match '^iPad' -and $imei.Length -eq 0
+    if (-not $serial -or ($imei.Length -ne 15 -and -not $isIpadWithoutImei)) {
+        throw 'O cache do 3uTools nao possui identificacao valida. Atualize a tela do aparelho e tente novamente.'
     }
 
     $battery = $null
@@ -1658,7 +1694,9 @@ function Get-ServidorCandidates {
     if ($env:CAIJ_SERVIDOR_URL) { [void]$candidatos.Add($env:CAIJ_SERVIDOR_URL.TrimEnd('/')) }
     if ($env:CAIJ_SERVIDOR_IP)  { [void]$candidatos.Add(('http://{0}:{1}' -f $env:CAIJ_SERVIDOR_IP.Trim(), $portaServidor)) }
 
-    # Nome estavel do PC principal; o IP atual permanece como contingencia.
+    # NAS de impressao e o PC anterior como contingencia durante a migracao.
+    [void]$candidatos.Add(('http://{0}:{1}' -f 'NAS-CAIJ', $portaServidor))
+    [void]$candidatos.Add(('http://{0}:{1}' -f '192.168.15.200', $portaServidor))
     [void]$candidatos.Add(('http://{0}:{1}' -f 'INFOCAIJ', $portaServidor))
     [void]$candidatos.Add(('http://{0}:{1}' -f '192.168.15.11', $portaServidor))
 

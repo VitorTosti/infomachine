@@ -2,6 +2,10 @@
 
 set +e
 
+if [[ "$1" != "--caij-after-update" ]]; then
+  osascript -e 'display notification "Verificando atualizacoes e lendo o equipamento. Aguarde a interface abrir." with title "Abrindo InfoNotebook..."' >/dev/null 2>&1 &
+fi
+
 DIR="${0:A:h}"
 CORE="$DIR/CoreCAIJ"
 OS_FILE="$CORE/caij_os_counter.txt"
@@ -395,6 +399,8 @@ server_candidates() {
   fi
   if [[ -n "$CAIJ_SERVIDOR_URL" ]]; then echo "${CAIJ_SERVIDOR_URL%/}"; fi
   if [[ -n "$CAIJ_SERVIDOR_IP" ]]; then echo "http://$CAIJ_SERVIDOR_IP:9100"; fi
+  echo "http://NAS-CAIJ:9100"
+  echo "http://192.168.15.200:9100"
   echo "http://INFOCAIJ.local:9100"
   echo "http://INFOCAIJ:9100"
   echo "http://192.168.15.11:9100"
@@ -650,6 +656,7 @@ launch_portable_web_ui() {
     ui_url="$server_url/mac/?app=$cache_key#runtime=$runtime_token"
     hosted_mode="sim"
   else
+    [[ "${CAIJ_MAC_HOSTED_ONLY:-}" == "1" ]] && return 1
     write_portable_runtime_data >/dev/null || return 1
     ui_url="file://$ui_file?app=$cache_key"
     ui_url="${ui_url// /%20}"
@@ -1111,15 +1118,50 @@ Ciclos: $cycles_summary" "Testes do Mac|Cadastrar OS|Imprimir etiqueta|Editar da
 }
 
 open_native_tests() {
-  local tests_file tests_title tests_url return_mode
+  local tests_file tests_title tests_url return_mode ruby_bin port candidate_port server_pid cache_key ready attempt
   return_mode="$1"
   tests_file="$CORE/mac-ui/index.html"
-  if [[ ! -f "$tests_file" ]]; then
-    dialog_message "Central indisponivel" "A interface local do Mac nao foi encontrada. Conecte o Mac a rede CAIJ e abra o aplicativo novamente para atualizar."
+  ruby_bin="/usr/bin/ruby"
+  if [[ ! -f "$tests_file" || ! -f "$CORE/mac-ui/portable.js" ]]; then
+    dialog_message "Arquivos de teste ausentes" "A copia local do InfoNotebook esta incompleta. Feche o aplicativo e abra novamente para reparar a instalacao automaticamente."
     return 1
   fi
-  tests_url="file://$tests_file?tests=1"
-  tests_url="${tests_url// /%20}"
+  if [[ ! -x "$ruby_bin" ]]; then
+    dialog_message "Servidor local indisponivel" "Este Mac nao possui o componente local necessario para liberar camera e microfone com seguranca. Informe esta mensagem ao suporte CAIJ."
+    return 1
+  fi
+
+  write_portable_runtime_data >/dev/null || return 1
+  port=""
+  for attempt in {0..12}; do
+    candidate_port=$((17680 + attempt))
+    if ! lsof -nP -iTCP:"$candidate_port" -sTCP:LISTEN >/dev/null 2>&1; then
+      port="$candidate_port"
+      break
+    fi
+  done
+  [[ -n "$port" ]] || return 1
+
+  "$ruby_bin" -run -e httpd "$CORE/mac-ui" -b 127.0.0.1 -p "$port" >/dev/null 2>&1 &
+  server_pid=$!
+  ready="nao"
+  for attempt in {1..30}; do
+    if curl -fsS --connect-timeout 1 --max-time 2 "http://127.0.0.1:$port/" >/dev/null 2>&1; then
+      ready="sim"
+      break
+    fi
+    kill -0 "$server_pid" >/dev/null 2>&1 || break
+    sleep 0.2
+  done
+  if [[ "$ready" != "sim" ]]; then
+    kill "$server_pid" >/dev/null 2>&1 || true
+    wait "$server_pid" >/dev/null 2>&1 || true
+    return 1
+  fi
+
+  cache_key="$(tr -d '\r\n' < "$CORE/caij_versao_app.txt" 2>/dev/null)"
+  [[ -z "$cache_key" ]] && cache_key="$(date '+%s')"
+  tests_url="http://127.0.0.1:$port/?tests=1&app=$cache_key"
   if [[ -n "$tests_url" ]] && open -a Safari "$tests_url" >/dev/null 2>&1; then
     # O menu do InfoNotebook continua vivo, mas sua janela fica recolhida
     # enquanto o tecnico trabalha na Central de Testes.
@@ -1135,7 +1177,7 @@ tell application "Safari"
   repeat with safariWindow in windows
     repeat with safariTab in tabs of safariWindow
       try
-        if (URL of safariTab contains "mac-ui/index.html") then return name of safariTab
+        if (URL of safariTab contains "127.0.0.1:") and (URL of safariTab contains "tests=1") then return name of safariTab
       end try
     end repeat
   end repeat
@@ -1151,6 +1193,8 @@ APPLESCRIPT
     if [[ "$tests_title" == "CAIJ_TESTES_CONCLUIDOS" ]]; then
       osascript -e 'tell application "Safari" to if (count of windows) > 0 then close current tab of front window' >/dev/null 2>&1 || true
     fi
+    kill "$server_pid" >/dev/null 2>&1 || true
+    wait "$server_pid" >/dev/null 2>&1 || true
     if [[ "$return_mode" == "hosted" ]]; then
       osascript -e 'tell application "Safari" to activate' >/dev/null 2>&1 || true
     else
@@ -1163,7 +1207,9 @@ APPLESCRIPT
     fi
     return 0
   fi
-  dialog_message "Nao foi possivel abrir" "Abra manualmente CoreCAIJ/mac-ui/index.html no Safari."
+  kill "$server_pid" >/dev/null 2>&1 || true
+  wait "$server_pid" >/dev/null 2>&1 || true
+  dialog_message "Nao foi possivel abrir" "Feche o Safari, abra novamente o InfoNotebookMac.command e tente outra vez."
   return 1
 }
 
@@ -1260,6 +1306,12 @@ hide_windows_launchers_in_finder
 warn_if_no_internet || true
 collect_info
 sync_os >/dev/null 2>&1
+
+# Prioriza a interface hospedada para o Mac sempre receber o layout atual.
+# Se o servidor estiver indisponivel, os modos locais continuam como fallback.
+if CAIJ_MAC_HOSTED_ONLY=1 launch_portable_web_ui; then
+  exit 0
+fi
 
 if launch_web_ui; then
   exit 0
