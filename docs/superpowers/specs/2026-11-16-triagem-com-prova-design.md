@@ -1,4 +1,4 @@
-# Triagem com prova — teclado, som, clique e USB
+# Triagem com prova e avaliação estética por peça
 
 Data: 16/11/2026 · Branch: `VitorTosti/feat-orquestrar-equipe-qa` (PR #2)
 
@@ -15,11 +15,16 @@ Hoje, quase todos os itens do checklist são autodeclarados: o técnico clica em
 
 Nesses quatro testes, o app deve **funcionar de forma confiável** e **não aceitar "Aprovado" sem uma evidência de que o teste foi feito**. Quando o app não conseguir detectar algo que funciona, o técnico ainda consegue concluir a etapa por **confirmação manual com justificativa**. Isso fica visível no relatório.
 
-### Fora do escopo
+A frente estética acrescenta uma **inspeção guiada por peça**, com imagens de referência, registro dos detalhes encontrados e sugestão explicada de grade A/B/C/D. As definições e as regras de cada grade dependem de aprovação do responsável pela empresa antes da implementação do veredito.
 
-- Câmera, tela, carregador, rede e HDMI continuam como estão.
+Este documento descreve o plano. A nova etapa estética e as novas exigências de evidência ainda não estão implementadas. O vínculo atual com a serial e o rastreador será reaproveitado, sem refazer a identificação dos equipamentos.
+
+### Limites e etapas posteriores
+
+- Os testes de funcionamento de câmera, tela, carregador, rede e HDMI continuam como estão nesta frente.
 - Detecção automática de USB no **macOS**: lá a USB continua manual, como hoje.
-- Critérios de grade e roteiro estético: são outra frente do plano.
+- A avaliação estética está incluída como uma frente própria, detalhada na seção 7. Ela não muda os critérios nem o resultado dos testes de funcionamento.
+- O novo padrão de apresentação dos relatórios fica para uma etapa posterior. A inclusão dos resultados estéticos deve preservar o formato atual e os registros antigos.
 - Publicação no NAS: só depois da validação em bancada, fora desta implementação.
 
 ### O que tornaria a entrega um fracasso, mesmo funcionando
@@ -117,6 +122,87 @@ O dono do projeto escolheu a **A**, para atacar os dois lados do problema. As de
 - **Identidade da porta USB:** a localização física é uma aproximação. O técnico pode **remover uma detecção errada**, por exemplo a mesma tomada detectada duas vezes. Dispositivos já conectados no momento da foto inicial aparecem como "já conectado em <localização>". O técnico pode usá-los como evidência da porta com um clique, porque um receptor de mouse funcionando prova a porta. Não há mapeamento de portas por modelo.
 - **Portas pré-criadas "USB 1" e "USB 2":** no Windows com detecção disponível, a lista começa **vazia** e as portas surgem pelas detecções ou por "Adicionar porta" manual, que exige confirmação manual. Sem detecção (Mac ou modo portátil), as duas portas pré-criadas continuam como hoje.
 
+### 7. Triagem estética guiada por peça
+
+#### Fluxo proposto
+
+1. Mostrar uma imagem que identifique a peça a ser inspecionada, rotulada como **Imagem de referência**.
+2. Fazer a pergunta **Em que estado está esta peça?**, com opções claras e exemplos visuais.
+3. Registrar os detalhes encontrados e, quando disponível, uma foto da própria máquina avaliada.
+4. Repetir a inspeção nas demais regiões.
+5. Apresentar um resumo por peça, os motivos da classificação e a grade sugerida.
+6. Pedir a conferência final do técnico e registrar a grade confirmada. Se ele escolher outra grade, registrar também o motivo da alteração.
+
+A imagem de referência orienta a inspeção; ela não é uma foto nem uma evidência da condição da máquina atual. As fotos anexadas pelo técnico devem ficar identificadas separadamente.
+
+#### Peças e regiões
+
+| Região | Pontos de inspeção |
+|---|---|
+| Tampa superior | Riscos, marcas, amassados e outros danos visíveis |
+| Tela | Marcas, riscos e danos na superfície |
+| Moldura da tela | Trincas, quebras e encaixes |
+| Base do teclado e apoio das mãos | Desgaste, riscos, trincas e peças ausentes |
+| Teclado e touchpad | Conservação, desgaste visível e integridade das peças |
+| Laterais e conectores | Danos visíveis, acabamento e peças ausentes |
+| Dobradiças | Danos visíveis na região e no acabamento |
+| Tampa inferior | Marcas, trincas, parafusos e apoios ausentes |
+
+O roteiro deve respeitar o tipo de equipamento. A inspeção visual da tela, do teclado, do touchpad e dos conectores não substitui os testes de funcionamento. Por exemplo, a aparência da dobradiça e sua capacidade de sustentar a tela são verificações distintas.
+
+#### Exemplo: tampa superior
+
+**Pergunta:** Em que estado a tampa superior está?
+
+- Sem marcas estéticas relevantes.
+- Riscos leves ou pequenas marcas de uso.
+- Riscos ou marcas mais evidentes.
+- Amassados.
+- Trinca, quebra ou outro dano visível.
+- Não foi possível avaliar.
+
+Essas são opções iniciais para validar com o responsável, sem correspondência automática com A/B/C/D enquanto as regras não forem aprovadas. As opções devem ser adaptadas a cada peça.
+
+Deve ser possível registrar mais de um detalhe na mesma peça, para que um risco não apague o registro de uma trinca, por exemplo. Para cada problema, registrar **tipo, localização, extensão e observação**, com possibilidade de anexar uma foto da própria máquina.
+
+**Não foi possível avaliar** representa uma pendência e não pode ser interpretado como peça sem marcas. Quando uma peça não existir naquele tipo de equipamento, permitir **Não se aplica**, mantendo a observação opcional, conforme a regra já acordada.
+
+#### Veredito e grades A/B/C/D
+
+- As quatro opções da nova etapa estética são **A, B, C e D**, cada uma com definição, exemplos e limites aprovados pelo responsável.
+- A diferença entre C e D precisa ficar especialmente clara para evitar classificações sobrepostas.
+- A sugestão de grade deve resultar de regras explícitas sobre os achados, com uma explicação legível: quais peças e detalhes levaram à sugestão.
+- Não usar média das notas das peças: um dano importante não deve desaparecer porque as outras partes estão bem conservadas.
+- A classificação será guiada pelos registros do técnico e pelas referências; não está prevista classificação automática por análise de imagem.
+- Se houver peça obrigatória não avaliada ou caso sem regra definida, mostrar **Avaliação estética pendente de revisão**, sem apresentar uma grade final como confirmada.
+- O técnico revisa o resumo e confirma a grade. Uma alteração em relação à sugestão exige motivo registrado e fica visível para conferência posterior.
+- Manter separados **resultado dos testes de funcionamento** e **grade estética**. Grade A na aparência não representa aprovação de hardware.
+- Preservar a leitura de classificações antigas, inclusive RMA quando existir no histórico; não reinterpretar os registros anteriores como avaliações feitas pelo novo roteiro.
+
+#### Registro e relatório
+
+O registro planejado deve guardar a avaliação de cada peça, seus detalhes e fotos disponíveis, a versão das regras de classificação, a grade sugerida e seu motivo, a grade confirmada, eventual justificativa de alteração, técnico e data. Usar o vínculo já existente com a serial e o rastreador.
+
+O resumo estético deve compor o relatório da triagem destinado à Ordem de Serviço no AlterTag. A atualização de uma Ordem de Serviço já existente precisa respeitar o contrato da integração e não pode alterar seu status ou criar outro rastreador apenas para registrar a avaliação. Não indicar envio concluído antes da confirmação da integração.
+
+O novo layout de relatório discutido com o usuário permanece para uma fase posterior. Registros antigos devem continuar acessíveis e identificados como históricos, sem ganhar uma grade ou uma confirmação novas automaticamente.
+
+#### Dependências e aceite da frente estética
+
+Antes de implementar o veredito, aprovar com o responsável as definições A/B/C/D, as imagens de referência, a lista de peças por tipo de equipamento e as regras para achados e casos duvidosos.
+
+Critérios de aceite:
+
+- Cada peça aplicável aparece com imagem de referência, pergunta e opções adequadas.
+- Mais de um detalhe na mesma peça é preservado, com localização e extensão.
+- Foto de referência e foto da máquina avaliada são distinguíveis.
+- Nenhuma peça começa implicitamente como sem defeitos; itens não avaliados permanecem pendentes.
+- A mesma combinação de achados e a mesma versão das regras produzem a mesma sugestão e explicação de grade.
+- Um dano relevante não é diluído pela média das demais peças.
+- A alteração da grade sugerida registra motivo; a aparência não aprova os testes de funcionamento.
+- Registros legados continuam legíveis, e o relatório mantém o vínculo com o rastreador existente.
+- O responsável e os técnicos validam o roteiro em máquinas reais e revisam as divergências antes da publicação no NAS.
+
 ## Ordem de entrega e testes
 
 Cada etapa é entregável sozinha, com testes passando.
@@ -125,8 +211,11 @@ Cada etapa é entregável sozinha, com testes passando.
 2. Clique e movimento.
 3. Evidência do teclado.
 4. Detecção de USB.
+5. Frente estética: aprovar critérios e referências, implementar checklist por peça, resumo e veredito explicado, integrar o registro e validar em bancada. A definição das regras e das imagens pode ocorrer enquanto a frente de hardware é desenvolvida.
 
 Os testes novos ou atualizados seguem o padrão existente: VM com DOM simulado em `.cjs`, como `KeyboardLayout.Tests.cjs`; validadores em `TestRecords.Tests.ps1` e `.py`; e um teste da rota USB com um coletor substituível. Ao final, a suíte inteira (`CoreCAIJ/*.Tests.*`) deve passar a partir da raiz.
+
+Para a frente estética, acrescentar casos de regras A/B/C/D aprovadas, múltiplos detalhes na mesma peça, peça pendente, peça não aplicável, sugestão explicada sem média, alteração justificada e leitura de histórico anterior. Até as definições serem aprovadas, os testes não devem inventar critérios de classificação da empresa.
 
 A validação física em bancada fica com o dono do projeto e é a condição para publicar no NAS. Ela inclui: um alto-falante de cada lado; tap-to-click; teclado E14 e outros modelos; um pendrive em cada porta, incluindo USB-C.
 
@@ -136,3 +225,4 @@ A validação física em bancada fica com o dono do projeto e é a condição pa
 - A consulta do Windows usada para listar a USB, escolhida pelo tempo de resposta.
 - O texto exato das mensagens na interface, mantendo o tom atual do app.
 - A estrutura interna do código, desde que o catálogo continue sendo a fonte dos itens.
+- A apresentação e a navegação entre peças da inspeção estética, preservando as referências aprovadas. As definições A/B/C/D e as regras do veredito são decisões do responsável pela empresa, não do construtor.
