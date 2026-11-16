@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 $startupLogDirectory = Join-Path $env:LOCALAPPDATA 'CAIJ\Logs'
 New-Item -ItemType Directory -Path $startupLogDirectory -Force | Out-Null
 $startupLog = Join-Path $startupLogDirectory 'abertura.log'
@@ -33,7 +33,7 @@ public static class CaijStartupWindow {
         } else {
             Write-StartupLog 'Instancia ativa sem janela acessivel.'
             Add-Type -AssemblyName System.Windows.Forms
-            [Windows.Forms.MessageBox]::Show('O InfoNotebook ainda esta iniciando ou encerrando. Aguarde alguns segundos e tente novamente.', 'InfoNotebook') | Out-Null
+            [Windows.Forms.MessageBox]::Show('O InfoNotebook ainda está iniciando ou encerrando. Aguarde alguns segundos e tente abrir novamente.', 'InfoNotebook') | Out-Null
         }
         exit
     }
@@ -41,29 +41,25 @@ public static class CaijStartupWindow {
     Add-Type -AssemblyName System.Drawing
     $form = New-Object Windows.Forms.Form
     $form.Text = 'InfoNotebook - Abrindo aplicativo'
-    $form.ClientSize = New-Object Drawing.Size(500, 270)
+    $form.ClientSize = New-Object Drawing.Size(560, 350)
     $form.StartPosition = 'CenterScreen'
     $form.FormBorderStyle = 'None'
-    $form.BackColor = [Drawing.ColorTranslator]::FromHtml('#101827')
+    $form.BackColor = [Drawing.ColorTranslator]::FromHtml('#0D1C2A')
     $form.ControlBox = $false
     $label = New-Object Windows.Forms.Label
-    $label.Text = 'Preparando seu ambiente'
+    $label.Text = 'Abrindo o InfoNotebook'
     $label.AutoSize = $false
-    $label.SetBounds(32, 114, 436, 38)
-    $label.Font = New-Object Drawing.Font('Segoe UI', 19, [Drawing.FontStyle]::Bold)
+    $label.SetBounds(32, 111, 496, 42)
+    $label.Font = New-Object Drawing.Font('Segoe UI', 21, [Drawing.FontStyle]::Bold)
     $label.ForeColor = [Drawing.ColorTranslator]::FromHtml('#F1F5FA')
     $brand = New-Object Windows.Forms.Label
     $brand.Text = 'InfoNotebook'
-    $brand.SetBounds(124, 36, 300, 30)
+    $brand.SetBounds(142, 35, 360, 28)
     $brand.Font = New-Object Drawing.Font('Segoe UI', 15, [Drawing.FontStyle]::Bold)
-    $brand.ForeColor = $label.ForeColor
-    $caption = New-Object Windows.Forms.Label
-    $caption.Text = 'CAIJ  /  EQUIPAMENTOS'
-    $caption.SetBounds(125, 68, 300, 20)
-    $caption.Font = New-Object Drawing.Font('Segoe UI', 8)
-    $caption.ForeColor = [Drawing.ColorTranslator]::FromHtml('#85BCE3')
+    $brand.ForeColor = [Drawing.ColorTranslator]::FromHtml('#B2BACF')
+    $brand.TextAlign = [Drawing.ContentAlignment]::MiddleLeft
     $logo = New-Object Windows.Forms.PictureBox
-    $logo.SetBounds(32, 30, 76, 62)
+    $logo.SetBounds(32, 26, 92, 52)
     $logo.SizeMode = 'Zoom'
     $logoPath = Join-Path $PSScriptRoot 'caij-logo.png'
     if (Test-Path -LiteralPath $logoPath) {
@@ -72,23 +68,46 @@ public static class CaijStartupWindow {
         $logo.Image = $logoImage
     }
     $detail = New-Object Windows.Forms.Label
-    $detail.Text = 'Verificando atualizacoes e lendo o equipamento...'
-    $detail.SetBounds(34, 157, 434, 28)
-    $detail.Font = New-Object Drawing.Font('Segoe UI', 10)
-    $detail.ForeColor = [Drawing.ColorTranslator]::FromHtml('#A5B4C8')
+    $detail.Text = 'Verificando atualizações e preparando o equipamento...'
+    $detail.SetBounds(34, 168, 492, 28)
+    $detail.Font = New-Object Drawing.Font('Segoe UI', 9.5)
+    $detail.ForeColor = [Drawing.ColorTranslator]::FromHtml('#B2BACF')
     $bar = New-Object Windows.Forms.Panel
-    $bar.BackColor = [Drawing.ColorTranslator]::FromHtml('#26374C')
-    $bar.SetBounds(34, 204, 432, 4)
+    $bar.BackColor = [Drawing.ColorTranslator]::FromHtml('#1C2030')
+    $bar.SetBounds(34, 219, 492, 4)
     $pulse = New-Object Windows.Forms.Panel
-    $pulse.BackColor = [Drawing.ColorTranslator]::FromHtml('#7ACDFA')
+    $pulse.BackColor = [Drawing.ColorTranslator]::FromHtml('#84DFD0')
     $pulse.SetBounds(0, 0, 96, 4)
     $bar.Controls.Add($pulse)
     $hint = New-Object Windows.Forms.Label
-    $hint.Text = 'O aplicativo abrira automaticamente.'
-    $hint.SetBounds(34, 224, 432, 20)
+    $hint.Text = 'A janela será aberta ao concluir a preparação.'
+    $hint.SetBounds(34, 250, 492, 20)
     $hint.Font = New-Object Drawing.Font('Segoe UI', 9)
-    $hint.ForeColor = [Drawing.ColorTranslator]::FromHtml('#8194AC')
-    $form.Controls.AddRange(@($logo, $brand, $caption, $label, $detail, $bar, $hint))
+    $hint.ForeColor = [Drawing.ColorTranslator]::FromHtml('#A6AEC3')
+    $form.Add_Paint({
+        param($sender, $e)
+        $border = New-Object Drawing.Pen([Drawing.ColorTranslator]::FromHtml('#2A2E3F'), 1)
+        try { $e.Graphics.DrawRectangle($border, 0, 0, $sender.ClientSize.Width - 1, $sender.ClientSize.Height - 1) }
+        finally { $border.Dispose() }
+    })
+    $divider = New-Object Windows.Forms.Panel
+    $divider.SetBounds(34, 288, 492, 1)
+    $divider.BackColor = [Drawing.ColorTranslator]::FromHtml('#2A2E3F')
+    $bar.AccessibleName = 'Abertura do aplicativo em andamento'
+    $elapsedLabel = New-Object Windows.Forms.Label
+    $elapsedLabel.SetBounds(34, 305, 250, 20)
+    $elapsedLabel.Font = New-Object Drawing.Font('Segoe UI', 9)
+    $elapsedLabel.ForeColor = [Drawing.ColorTranslator]::FromHtml('#B2BACF')
+    $elapsedLabel.Text = 'Tempo de abertura: 0 s'
+    $versionLabel = New-Object Windows.Forms.Label
+    $versionLabel.SetBounds(294, 305, 232, 20)
+    $versionLabel.TextAlign = [Drawing.ContentAlignment]::MiddleRight
+    $versionLabel.Font = New-Object Drawing.Font('Segoe UI', 8)
+    $versionLabel.ForeColor = [Drawing.ColorTranslator]::FromHtml('#B2BACF')
+    $startupVersionPath = Join-Path $PSScriptRoot 'caij_versao_app.txt'
+    $versionLabel.Text = 'Versão local'
+    try { if (Test-Path -LiteralPath $startupVersionPath) { $versionLabel.Text = 'v' + ([IO.File]::ReadAllText($startupVersionPath)).Trim() } } catch { }
+    $form.Controls.AddRange(@($logo, $brand, $label, $detail, $bar, $hint, $divider, $elapsedLabel, $versionLabel))
     $animationClock = [Diagnostics.Stopwatch]::StartNew()
     $form.Show()
     $form.Activate()
@@ -101,6 +120,10 @@ public static class CaijStartupWindow {
     Write-StartupLog "Inicializador iniciado: $($worker.Id)"
     while (-not $worker.HasExited) {
         if ($form.Visible) { $pulse.Left = [int](($animationClock.ElapsedMilliseconds / 4) % ($bar.Width + $pulse.Width)) - $pulse.Width }
+        if ($form.Visible) {
+            $elapsedLabel.Text = 'Tempo de abertura: {0} s' -f [int]$animationClock.Elapsed.TotalSeconds
+            if ($animationClock.Elapsed.TotalSeconds -ge 20) { $hint.Text = 'A preparação está levando mais tempo. Aguarde.' }
+        }
         if ($form.Visible -and (Test-Path -LiteralPath $readyPath)) { Write-StartupLog 'Interface carregada.'; $form.Hide() }
         [Windows.Forms.Application]::DoEvents()
         Start-Sleep -Milliseconds 100

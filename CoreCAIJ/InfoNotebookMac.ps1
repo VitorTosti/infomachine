@@ -416,9 +416,10 @@ function Resolve-CaijGradeSelection {
 
     if ($gradeLimpa -match '^(?:GRADE\s+)?C(?:\s*-\s*PINTURA\s*[123])?$') { return 'C' }
 
+    if ($gradeLimpa -match '^GRADE\s+D$') { return 'D' }
     if ($gradeLimpa -eq 'RMA') { return 'RMA' }
     if ($gradeLimpa -match '^(?:GRADE\s*)?T(?:\s*-\s*TRIAGEM)?$') { return 'T - TRIAGEM' }
-    if ($gradeLimpa -in @('A','B')) { return $gradeLimpa }
+    if ($gradeLimpa -in @('A','B','D')) { return $gradeLimpa }
     return $gradeLimpa
 }
 
@@ -431,6 +432,7 @@ function New-CaijPrintPayload {
         [switch]$IncludeOs,
         [switch]$Manual
     )
+    if ((Resolve-CaijGradeSelection -Grade $Grade) -eq 'D' -and [string]::IsNullOrWhiteSpace($Obs)) { throw 'Para grade D, descreva qual detalhe a maquina tem.' }
     $gpu = Get-GpuShort $Info.GPU
     $discoCompleto = (($Info.Discos -split $NL) | Where-Object { $_.Trim() -ne '' } | Select-Object -First 1)
     return [ordered]@{
@@ -449,6 +451,7 @@ function New-CaijPrintPayload {
         fichaDisco = $discoCompleto
         modoManual = [bool]$Manual
         bateria = Get-MacBatterySummary -Info $Info
+        detalheGrade = ([string]$Obs).Trim()
         grade = Resolve-CaijGradeSelection -Grade $Grade
         obs = if ($Obs) { $Obs } else { '' }
     }
@@ -720,12 +723,12 @@ function Start-InfoNotebookMac {
 
         switch ($op) {
             '1' {
-                $grade = Read-Host 'Grade (A/B/C/T/RMA) [A]'
+                $grade = Read-Host 'Grade (A/B/C/D/RMA) [A]'
                 if (-not $grade) { $grade = 'A' }
                 $grade = Resolve-CaijGradeSelection -Grade $grade
                 $obs = Read-Host 'Observacoes para etiqueta'
-                while (($grade -in @('B', 'C')) -and [string]::IsNullOrWhiteSpace($obs)) {
-                    Write-Host 'Observacoes sao obrigatorias para Grade B e Grade C.' -ForegroundColor Yellow
+                while (($grade -in @('B', 'C', 'D')) -and [string]::IsNullOrWhiteSpace($obs)) {
+                    Write-Host 'Observacoes sao obrigatorias para Grade B, Grade C e Grade D.' -ForegroundColor Yellow
                     $obs = Read-Host 'Observacoes para etiqueta'
                 }
                 $inc = Read-Host 'Incluir OS na etiqueta? (S/n)'

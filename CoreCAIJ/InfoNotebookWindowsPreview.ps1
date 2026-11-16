@@ -264,6 +264,62 @@ function Send-LocalJsonResponse {
     Send-LocalBytesResponse -Client $Client -StatusCode $StatusCode -Bytes ([Text.Encoding]::UTF8.GetBytes($json)) -ContentType 'application/json; charset=utf-8'
 }
 
+function Get-LocalTestRecordsPath {
+    Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CAIJ\Testes\registros.json'
+}
+function Read-LocalTestRecords {
+    param([string]$Path = (Get-LocalTestRecordsPath))
+    if (-not (Test-Path -LiteralPath $Path)) { return @() }
+    try {
+        $loaded = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($Path))
+        foreach ($entry in $loaded) { Write-Output $entry }
+    }
+    catch { throw 'Historico local ilegivel; preserve registros.json e restaure o backup antes de salvar.' }
+}
+function Save-LocalTestRecord {
+    param($Record, [string]$Path = (Get-LocalTestRecordsPath))
+    foreach ($key in @('technician','serial','confirmedAt','fingerprint')) {
+        if ([string]::IsNullOrWhiteSpace([string]$Record.$key)) { throw "Campo obrigatorio: $key" }
+    }
+    $date = [datetimeoffset]::MinValue
+    if (-not [datetimeoffset]::TryParse([string]$Record.confirmedAt, [ref]$date)) { throw 'Data de confirmacao invalida.' }
+    if ($Record.mode -notin @('APROVADO','REGISTRADO')) { throw 'Confirmacao invalida.' }
+    $items = @($Record.items)
+    if (-not $items.Count) { throw 'Inclua os itens verificados.' }
+    $requiredIds = @('camera.image','camera.capture','keyboard.keys','audio.speakers','screen.pixels','screen.artifacts','trackpad.movement','trackpad.buttons','usb.inventory','charger.connectors','charger.firmness','network.ethernet','network.wifi','hdmi.detection','hdmi.image')
+    $ids = @{}
+    $usbPorts = 0
+    foreach ($item in $items) {
+        if (-not $item.id -or $ids.ContainsKey([string]$item.id)) { throw 'Identificador de item invalido ou repetido.' }
+        $ids[[string]$item.id] = $true
+        $group = ([string]$item.id -split '\.')[0]
+        if ([string]::IsNullOrWhiteSpace([string]$item.label) -or $item.testId -ne $group) { throw 'Nome ou grupo do item invalido.' }
+        if ($item.id -notin $requiredIds) {
+            if ($item.id -notmatch '^usb\.port-[1-9]\d*$') { throw 'Criterio desconhecido.' }
+            $usbPorts++
+        }
+        if ($item.result -notin @('passed','failed','untested','not_applicable')) { throw 'Item pendente ou invalido.' }
+        if ($item.result -in @('failed','untested') -and [string]::IsNullOrWhiteSpace([string]$item.notes)) { throw 'Justifique os itens com ressalvas.' }
+        if ($Record.mode -eq 'APROVADO' -and $item.result -in @('failed','untested')) { throw 'Falha ou item nao testado impede aprovacao.' }
+    }
+    if ($usbPorts -gt 32 -or @($requiredIds | Where-Object { -not $ids.ContainsKey($_) }).Count) { throw 'Checklist incompleto ou portas USB invalidas.' }
+    if ($Record.mode -eq 'APROVADO' -and -not @($items | Where-Object result -eq 'passed').Count) { throw 'Aprovacao exige item aprovado.' }
+    $snapshot = [ordered]@{ technician=[string]$Record.technician; serial=[string]$Record.serial; items=$items; mode=[string]$Record.mode; confirmedAt=[string]$Record.confirmedAt; fingerprint=[string]$Record.fingerprint; notes=[string]$Record.notes }
+    $records = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($entry in @(Read-LocalTestRecords -Path $Path)) { $records.Add($entry) }
+    $records.Add([pscustomobject]$snapshot)
+    while ($records.Count -gt 100) { $records.RemoveAt(0) }
+    $directory = Split-Path -Parent $Path
+    [IO.Directory]::CreateDirectory($directory) | Out-Null
+    $pending = $Path + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
+    try {
+        [IO.File]::WriteAllText($pending, (ConvertTo-Json -InputObject @($records.ToArray()) -Depth 20), (New-Object Text.UTF8Encoding($false)))
+        if ([IO.File]::Exists($Path)) { [IO.File]::Replace($pending, $Path, ($Path + '.bak')) }
+        else { [IO.File]::Move($pending, $Path) }
+    } finally { if ([IO.File]::Exists($pending)) { [IO.File]::Delete($pending) } }
+    return $snapshot
+}
+
 function Send-LocalUiFile {
     param($Client, [string]$UiDirectory, [string]$RequestPath)
     $route = ($RequestPath -split '\?')[0]
@@ -272,9 +328,13 @@ function Send-LocalUiFile {
         '/index.html' = @('index.html', 'text/html; charset=utf-8')
         '/style.css' = @('style.css', 'text/css; charset=utf-8')
         '/app.js' = @('app.js', 'text/javascript; charset=utf-8')
+        '/qr-encoder.js' = @('qr-encoder.js', 'text/javascript; charset=utf-8')
+        '/qr-preview.js' = @('qr-preview.js', 'text/javascript; charset=utf-8')
+        '/animated-gradient.js' = @('animated-gradient.js', 'text/javascript; charset=utf-8')
         '/portable.js' = @('portable.js', 'text/javascript; charset=utf-8')
         '/storage.js' = @('storage.js', 'text/javascript; charset=utf-8')
         '/observation.js' = @('observation.js', 'text/javascript; charset=utf-8')
+        '/test-checklist.js' = @('test-checklist.js', 'text/javascript; charset=utf-8')
         '/serial-os.js' = @('serial-os.js', 'text/javascript; charset=utf-8')
         '/runtime-loader.js' = @('runtime-loader.js', 'text/javascript; charset=utf-8')
         '/caij-runtime.js' = @('caij-runtime.js', 'text/javascript; charset=utf-8')
@@ -517,7 +577,8 @@ try {
         serverUrl = $server
         lastServerStatus = 'nao verificado'
         internetStatus = 'nao verificado'
-        version = "$version-preview"
+        version = $version
+        versionRecordedAt = if (Test-Path -LiteralPath $versionPath) { (Get-Item -LiteralPath $versionPath).LastWriteTimeUtc.ToString('o') } else { '' }
         localBridgeUrl = "http://127.0.0.1:$localBridgePort"
     }
     $json = $runtime | ConvertTo-Json -Depth 8 -Compress
@@ -566,11 +627,35 @@ try {
         if (-not $localBridge.Pending()) { Start-Sleep -Milliseconds 100; $edgeProcess.Refresh(); continue }
         $client = $localBridge.AcceptTcpClient()
         try {
-            $reader = New-Object IO.StreamReader($client.GetStream(), [Text.Encoding]::ASCII, $false, 1024, $true)
+            $reader = New-Object IO.StreamReader($client.GetStream(), [Text.Encoding]::UTF8, $false, 1024, $true)
             $requestLine = [string]$reader.ReadLine()
-            while (($line = $reader.ReadLine()) -ne '') { if ($null -eq $line) { break } }
+            $contentLength = 0
+            while (($line = $reader.ReadLine()) -ne '') {
+                if ($null -eq $line) { break }
+                if ($line -match '^Content-Length:\s*(\d+)') { $contentLength = [int]$Matches[1] }
+            }
             if ($requestLine -match '^OPTIONS\s+') {
                 Send-LocalJsonResponse -Client $client -StatusCode 204 -Body @{}
+            } elseif ($requestLine -match '^(GET|POST)\s+/api/test-records(?:\?|\s)') {
+                $method = $Matches[1]
+                try {
+                    if ($method -eq 'GET') { $body = @{ ok=$true; records=@(Read-LocalTestRecords) } }
+                    else {
+                        if ($contentLength -lt 1 -or $contentLength -gt 1048576) { throw 'Tamanho de registro invalido.' }
+                        $text = New-Object Text.StringBuilder
+                        $receivedBytes = 0
+                        while ($receivedBytes -lt $contentLength) {
+                            $character = $reader.Read()
+                            if ($character -lt 0) { throw 'Registro incompleto.' }
+                            [void]$text.Append([char]$character)
+                            if ([char]::IsLowSurrogate([char]$character)) { $receivedBytes += 4 }
+                            elseif (-not [char]::IsHighSurrogate([char]$character)) { $receivedBytes += [Text.Encoding]::UTF8.GetByteCount([char[]]@([char]$character)) }
+                        }
+                        $record = ConvertFrom-Json -InputObject $text.ToString()
+                        $body = @{ ok=$true; record=(Save-LocalTestRecord -Record $record) }
+                    }
+                    Send-LocalJsonResponse -Client $client -StatusCode 200 -Body $body
+                } catch { Send-LocalJsonResponse -Client $client -StatusCode 400 -Body @{ ok=$false; message=$_.Exception.Message } }
             } elseif ($requestLine -match '^POST\s+/3utools(?:\?|\s)') {
                 try { Send-LocalJsonResponse -Client $client -StatusCode 200 -Body @{ ok=$true; device=(Get-Windows3uToolsInfo) } }
                 catch { Send-LocalJsonResponse -Client $client -StatusCode 500 -Body @{ ok=$false; message=$_.Exception.Message } }

@@ -310,7 +310,7 @@ public sealed class CaijGradeMenuRenderer : ToolStripProfessionalRenderer
         if (tag == "A") return Color.FromArgb(34, 197, 94);
         if (tag == "B") return Color.FromArgb(245, 158, 11);
         if (tag == "C" || tag.StartsWith("C - PINTURA")) return Color.FromArgb(249, 115, 22);
-        if (tag.StartsWith("T - TRIAGEM")) return Color.FromArgb(139, 92, 246);
+        if (tag == "D" || tag.StartsWith("T - TRIAGEM")) return Color.FromArgb(139, 92, 246);
         if (tag == "RMA") return Color.FromArgb(244, 63, 94);
         return Color.FromArgb(112, 105, 133);
     }
@@ -397,7 +397,7 @@ function Set-DoubleBuffered {
 # ================================================
 $splash = New-Object System.Windows.Forms.Form
 $splash.Text            = 'InfoNotebook'
-$splash.ClientSize      = New-Object System.Drawing.Size(520, 300)
+$splash.ClientSize      = New-Object System.Drawing.Size(520, 330)
 $splash.StartPosition   = 'CenterScreen'
 $splash.BackColor       = [System.Drawing.Color]::FromArgb(7, 9, 17)
 $splash.FormBorderStyle = 'None'
@@ -416,7 +416,7 @@ $splash.Add_Paint({
 $splashCard = New-Object System.Windows.Forms.Panel
 $splashCard.BackColor = [System.Drawing.Color]::FromArgb(7, 9, 17)
 $splashCard.Location  = New-Object System.Drawing.Point(1, 1)
-$splashCard.Size      = New-Object System.Drawing.Size(518, 298)
+$splashCard.Size      = New-Object System.Drawing.Size(518, 328)
 $splashCard.BorderStyle = 'None'
 $splash.Controls.Add($splashCard)
 
@@ -439,28 +439,21 @@ if (-not $logoPath) {
     $logoPath = $null
 }
 
-$splashEyebrow = New-Object System.Windows.Forms.Label
-$splashEyebrow.Text      = 'CAIJ INFORMATICA  /  GESTAO TECNICA'
-$splashEyebrow.Font      = New-CaijFont -Kind UI -Size 8 -Style ([System.Drawing.FontStyle]::Bold)
-$splashEyebrow.ForeColor = [System.Drawing.Color]::FromArgb(112, 124, 228)
-$splashEyebrow.Location  = New-Object System.Drawing.Point(34, 24)
-$splashEyebrow.Size      = New-Object System.Drawing.Size(330, 18)
-$splashCard.Controls.Add($splashEyebrow)
 $splashLogoImg = New-Object System.Windows.Forms.PictureBox
-$splashLogoImg.Location = New-Object System.Drawing.Point(384, 20)
-$splashLogoImg.Size = New-Object System.Drawing.Size(100, 48)
+$splashLogoImg.Location = New-Object System.Drawing.Point(34, 24)
+$splashLogoImg.Size = New-Object System.Drawing.Size(92, 44)
 $splashLogoImg.SizeMode = 'Zoom'
 $splashLogoImg.BackColor = [System.Drawing.Color]::Transparent
 $splashCard.Controls.Add($splashLogoImg)
 
 $splashLogo = New-Object System.Windows.Forms.Label
-$splashLogo.Text      = 'IN'
+$splashLogo.Text      = 'CAIJ'
 $splashLogo.Font      = New-CaijFont -Kind Display -Size 18 -Style ([System.Drawing.FontStyle]::Bold)
 $splashLogo.ForeColor = [System.Drawing.Color]::FromArgb(240, 242, 248)
 $splashLogo.BackColor = [System.Drawing.Color]::FromArgb(21, 24, 38)
 $splashLogo.TextAlign = [System.Drawing.ContentAlignment]::MiddleCenter
-$splashLogo.Location  = New-Object System.Drawing.Point(438, 20)
-$splashLogo.Size      = New-Object System.Drawing.Size(46, 46)
+$splashLogo.Location  = New-Object System.Drawing.Point(34, 24)
+$splashLogo.Size      = New-Object System.Drawing.Size(92, 44)
 $splashCard.Controls.Add($splashLogo)
 if (Test-Path $logoPath) {
     try {
@@ -474,30 +467,43 @@ $splashTagline.Text      = 'Preparando o InfoNotebook'
 $splashTagline.Font      = New-CaijFont -Kind Display -Size 22 -Style ([System.Drawing.FontStyle]::Bold)
 $splashTagline.ForeColor = [System.Drawing.Color]::FromArgb(240, 242, 248)
 $splashTagline.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-$splashTagline.Location  = New-Object System.Drawing.Point(34, 58)
-$splashTagline.Size      = New-Object System.Drawing.Size(390, 42)
+$splashTagline.Location  = New-Object System.Drawing.Point(32, 91)
+$splashTagline.Size      = New-Object System.Drawing.Size(454, 42)
 $splashCard.Controls.Add($splashTagline)
 
 $splashSub = New-Object System.Windows.Forms.Label
 $splashSub.Text      = 'Inventario, diagnostico e etiquetagem em um unico fluxo.'
 $splashSub.Font      = New-CaijFont -Kind UI -Size 9
-$splashSub.ForeColor = [System.Drawing.Color]::FromArgb(166, 170, 184)
-$splashSub.Location  = New-Object System.Drawing.Point(36, 101)
+$splashSub.ForeColor = [System.Drawing.Color]::FromArgb(178, 186, 207)
+$splashSub.Location  = New-Object System.Drawing.Point(35, 139)
 $splashSub.Size      = New-Object System.Drawing.Size(448, 20)
 $splashCard.Controls.Add($splashSub)
 
+$splashDivider = New-Object System.Windows.Forms.Panel
+$splashDivider.BackColor = [System.Drawing.Color]::FromArgb(42, 46, 63)
+$splashDivider.Location = New-Object System.Drawing.Point(34, 181)
+$splashDivider.Size = New-Object System.Drawing.Size(450, 1)
+$splashCard.Controls.Add($splashDivider)
 $splashStatusCard = New-Object System.Windows.Forms.Panel
-$splashStatusCard.BackColor = [System.Drawing.Color]::FromArgb(15, 18, 29)
-$splashStatusCard.Location  = New-Object System.Drawing.Point(34, 142)
+$splashStatusCard.BackColor = $splashCard.BackColor
+$splashStatusCard.Location  = New-Object System.Drawing.Point(34, 191)
 $splashStatusCard.Size      = New-Object System.Drawing.Size(450, 76)
 $splashCard.Controls.Add($splashStatusCard)
 
-$splashSpinner = New-Object System.Windows.Forms.Label
-$splashSpinner.Text      = '●'
-$splashSpinner.Font      = New-Object System.Drawing.Font('Segoe UI Symbol', 11, [System.Drawing.FontStyle]::Bold)
-$splashSpinner.ForeColor = [System.Drawing.Color]::FromArgb(94, 106, 210)
-$splashSpinner.Location  = New-Object System.Drawing.Point(18, 17)
-$splashSpinner.Size      = New-Object System.Drawing.Size(18, 20)
+$splashSpinner = New-Object System.Windows.Forms.Panel
+$splashSpinner.ForeColor = [System.Drawing.Color]::FromArgb(132, 223, 208)
+$splashSpinner.Location  = New-Object System.Drawing.Point(0, 18)
+$splashSpinner.Size      = New-Object System.Drawing.Size(18, 18)
+$splashSpinner.Add_Paint({
+    param($sender, $e)
+    $e.Graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $trackPen = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(42, 46, 63), 2)
+    $activePen = New-Object System.Drawing.Pen($sender.ForeColor, 2)
+    try {
+        $e.Graphics.DrawEllipse($trackPen, 3, 3, 11, 11)
+        $e.Graphics.DrawArc($activePen, 3, 3, 11, 11, ([int]$script:spinnerIdx * 90), 100)
+    } finally { $trackPen.Dispose(); $activePen.Dispose() }
+})
 $splashStatusCard.Controls.Add($splashSpinner)
 
 $splashMsg = New-Object System.Windows.Forms.Label
@@ -505,46 +511,46 @@ $splashMsg.Text      = 'Coletando informacoes de hardware...'
 $splashMsg.Font      = New-CaijFont -Kind UI -Size 9 -Style ([System.Drawing.FontStyle]::Bold)
 $splashMsg.ForeColor = [System.Drawing.Color]::FromArgb(240, 242, 248)
 $splashMsg.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
-$splashMsg.Location  = New-Object System.Drawing.Point(42, 14)
-$splashMsg.Size      = New-Object System.Drawing.Size(340, 24)
+$splashMsg.Location  = New-Object System.Drawing.Point(28, 14)
+$splashMsg.Size      = New-Object System.Drawing.Size(356, 24)
 $splashStatusCard.Controls.Add($splashMsg)
 
 $splashPercent = New-Object System.Windows.Forms.Label
 $splashPercent.Text      = '0%'
 $splashPercent.Font      = New-CaijFont -Kind UI -Size 9 -Style ([System.Drawing.FontStyle]::Bold)
-$splashPercent.ForeColor = [System.Drawing.Color]::FromArgb(166, 170, 184)
+$splashPercent.ForeColor = [System.Drawing.Color]::FromArgb(178, 186, 207)
 $splashPercent.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
-$splashPercent.Location  = New-Object System.Drawing.Point(384, 17)
+$splashPercent.Location  = New-Object System.Drawing.Point(402, 17)
 $splashPercent.Size      = New-Object System.Drawing.Size(48, 20)
 $splashStatusCard.Controls.Add($splashPercent)
 
 $splashBarTrack = New-Object System.Windows.Forms.Panel
 $splashBarTrack.BackColor = [System.Drawing.Color]::FromArgb(28, 32, 48)
-$splashBarTrack.Location  = New-Object System.Drawing.Point(18, 51)
-$splashBarTrack.Size      = New-Object System.Drawing.Size(414, 6)
+$splashBarTrack.Location  = New-Object System.Drawing.Point(0, 51)
+$splashBarTrack.Size      = New-Object System.Drawing.Size(450, 4)
 $splashBarTrack.BorderStyle = 'None'
 $splashStatusCard.Controls.Add($splashBarTrack)
 
 $splashBar = New-Object System.Windows.Forms.Label
-$splashBar.BackColor = [System.Drawing.Color]::FromArgb(94, 106, 210)
+$splashBar.BackColor = [System.Drawing.Color]::FromArgb(132, 223, 208)
 $splashBar.Location  = New-Object System.Drawing.Point(0, 0)
-$splashBar.Size      = New-Object System.Drawing.Size(0, 6)
+$splashBar.Size      = New-Object System.Drawing.Size(0, 4)
 $splashBarTrack.Controls.Add($splashBar)
 
 $splashFoot = New-Object System.Windows.Forms.Label
 $splashFoot.Text      = 'Leitura local e segura do equipamento'
 $splashFoot.Font      = New-CaijFont -Kind UI -Size 8
-$splashFoot.ForeColor = [System.Drawing.Color]::FromArgb(112, 117, 133)
-$splashFoot.Location  = New-Object System.Drawing.Point(34, 238)
+$splashFoot.ForeColor = [System.Drawing.Color]::FromArgb(166, 174, 195)
+$splashFoot.Location  = New-Object System.Drawing.Point(34, 286)
 $splashFoot.Size      = New-Object System.Drawing.Size(330, 18)
 $splashCard.Controls.Add($splashFoot)
 
 $splashVersion = New-Object System.Windows.Forms.Label
 $splashVersion.Text      = 'v4.1'
 $splashVersion.Font      = New-CaijFont -Kind UI -Size 8 -Style ([System.Drawing.FontStyle]::Bold)
-$splashVersion.ForeColor = [System.Drawing.Color]::FromArgb(166, 170, 184)
+$splashVersion.ForeColor = [System.Drawing.Color]::FromArgb(178, 186, 207)
 $splashVersion.TextAlign = [System.Drawing.ContentAlignment]::MiddleRight
-$splashVersion.Location  = New-Object System.Drawing.Point(418, 238)
+$splashVersion.Location  = New-Object System.Drawing.Point(418, 36)
 $splashVersion.Size      = New-Object System.Drawing.Size(66, 18)
 $splashCard.Controls.Add($splashVersion)
 
@@ -568,11 +574,11 @@ $script:splashSteps = @(
 $script:splashStepIdx = 0
 $timer.Add_Tick({
     $script:spinnerIdx = ($script:spinnerIdx + 1) % $script:spinnerFrames.Count
-    $splashSpinner.Text = $script:spinnerFrames[$script:spinnerIdx]
+    $splashSpinner.Invalidate()
     [System.Windows.Forms.Application]::DoEvents()
 })
 $timer.Start()
-$script:splashBarMaxW = 414
+$script:splashBarMaxW = 450
 $script:UpdateSplashProgress = {
     param([int]$Percent, [string]$Message)
     $pct = [math]::Max($script:splashProgress, [math]::Min(100, $Percent))
@@ -4631,6 +4637,7 @@ function Show-CadastroOsAltertagDraft {
             $script:gradeCadastroOs = [string]$this.Tag
             $script:gradeAtual = [string]$this.Tag
             $btnGradeOs.Text = (Format-CaijGradeReference $script:gradeCadastroOs)
+            if ($lblObsCadastro) { $lblObsCadastro.Text = if ($script:gradeCadastroOs -eq 'D') { 'DETALHE DA MAQUINA *' } else { 'OBSERVACAO' } }
             Update-ResumoOs -Produto $listProd.SelectedItem
         })
         [void]$gradeMenuOs.Items.Add($gradeItem)
@@ -5284,11 +5291,11 @@ function Show-CadastroOsAltertagDraft {
     $obsRailCadastro.Size = New-Object System.Drawing.Size(3,148)
     [void]$obsPanelCadastro.Controls.Add($obsRailCadastro)
     $lblObsCadastro = New-Object System.Windows.Forms.Label
-    $lblObsCadastro.Text = 'OBSERVACAO'
+    $lblObsCadastro.Text = if ($script:gradeCadastroOs -eq 'D') { 'DETALHE DA MAQUINA *' } else { 'OBSERVACAO' }
     $lblObsCadastro.Font = New-Object System.Drawing.Font('Segoe UI',6.5,[System.Drawing.FontStyle]::Bold)
     $lblObsCadastro.ForeColor = [System.Drawing.Color]::FromArgb(34,211,238)
     $lblObsCadastro.Location = New-Object System.Drawing.Point(12,6)
-    $lblObsCadastro.Size = New-Object System.Drawing.Size(110,13)
+    $lblObsCadastro.Size = New-Object System.Drawing.Size(210,13)
     [void]$obsPanelCadastro.Controls.Add($lblObsCadastro)
     $txtObsCadastro = New-Object System.Windows.Forms.TextBox
     $txtObsCadastro.Multiline = $true
@@ -6707,6 +6714,11 @@ function Show-CadastroOsAltertagDraft {
             [System.Windows.Forms.MessageBox]::Show('Informe o serial antes de criar a OS.', 'Cadastrar OS', 'OK', 'Warning') | Out-Null
             return
         }
+        if ((Normalize-CaijGrade $script:gradeCadastroOs) -eq 'D' -and [string]::IsNullOrWhiteSpace($txtObsCadastro.Text)) {
+            [System.Windows.Forms.MessageBox]::Show('Para cadastrar com grade D, descreva qual detalhe a maquina tem em OBSERVACAO.', 'Observacao obrigatoria', 'OK', 'Warning') | Out-Null
+            $txtObsCadastro.Focus() | Out-Null
+            return
+        }
         $estadoServicosAtual = $this.Tag
         $servicosMarcados = @()
         $produtoDescricaoSel = [string]$prodSel.descricao
@@ -6748,6 +6760,7 @@ function Show-CadastroOsAltertagDraft {
                 servicos = @($servicosMarcados)
                 tipoEquipamento = $tipoCadastroInferido
                 observacao = $observacaoCadastroFinal
+                detalheGrade = $txtObsCadastro.Text.Trim()
             }
             $payload = $payloadObj | ConvertTo-Json -Depth 5 -Compress
             $resp = Invoke-CaijUiResponsiveJsonPost `
@@ -6818,6 +6831,7 @@ function Show-CadastroOsAltertagDraft {
                     ordem = $script:altertagOsAtual
                     etiqueta = $etiquetaCadastro
                     observacao = $observacaoCadastroFinal
+                    detalheGrade = $txtObsCadastro.Text.Trim()
                 }
             }
             $dlg.Close()
@@ -7087,6 +7101,7 @@ $btnImprimir.Add_Click({
         CriadaAgora = $false
         Etiqueta = $null
         Observacao = ''
+        DetalheGrade = ''
     }
     if ($script:osImpressaoPendente -and [int]$script:osImpressaoPendente.osNumero -gt 0) {
         $printContext.OsNumero = [int]$script:osImpressaoPendente.osNumero
@@ -7094,6 +7109,7 @@ $btnImprimir.Add_Click({
         $printContext.CriadaAgora = $true
         $printContext.Etiqueta = $script:osImpressaoPendente.etiqueta
         $printContext.Observacao = [string]$script:osImpressaoPendente.observacao
+        $printContext.DetalheGrade = [string]$script:osImpressaoPendente.detalheGrade
         $script:osImpressaoPendente = $null
     }
     [System.Windows.Forms.Application]::DoEvents()
@@ -7385,7 +7401,7 @@ $btnImprimir.Add_Click({
     if ($printContext.CriadaAgora) {
         $script:incluirOSAtual = $true
         if (-not [string]::IsNullOrWhiteSpace($printContext.Observacao)) {
-            $script:obsAtual = $printContext.Observacao.Trim()
+            $script:obsAtual = if ((Normalize-CaijGrade ([string]$printContext.Ordem.referencia)) -eq 'D') { $printContext.DetalheGrade.Trim() } else { $printContext.Observacao.Trim() }
         }
         Apply-OsAltertagNaEtiqueta -Ordem $printContext.Ordem
         Apply-CadastroOsEtiquetaNaImpressao -Etiqueta $printContext.Etiqueta
@@ -7412,6 +7428,10 @@ $btnImprimir.Add_Click({
             $rmaTxt = "Defeito: $lista"
             if ($baseObs) { return "$baseObs | $rmaTxt" }
             return $rmaTxt
+        }
+        if ($printContext.CriadaAgora -and (Normalize-CaijGrade ([string]$printContext.Ordem.referencia)) -eq 'D' -and $printContext.Observacao) {
+            if ($printContext.DetalheGrade -and $printContext.Observacao.Contains($printContext.DetalheGrade)) { return $printContext.Observacao.Replace($printContext.DetalheGrade, $baseObs) }
+            return ((@($printContext.Observacao, $baseObs) | Where-Object { $_ }) -join ' | ')
         }
         return $baseObs
     }
@@ -7807,7 +7827,7 @@ $btnImprimir.Add_Click({
         'A' = [System.Drawing.Color]::FromArgb(18, 160, 92)
         'B' = [System.Drawing.Color]::FromArgb(214, 154, 36)
         'C' = [System.Drawing.Color]::FromArgb(232, 102, 34)
-        'T' = [System.Drawing.Color]::FromArgb(39, 164, 186)
+        'D' = [System.Drawing.Color]::FromArgb(39, 164, 186)
         'RMA' = [System.Drawing.Color]::FromArgb(208, 58, 82)
     }
     # Variacoes derivadas: fundo tintado (escuro na cor da grade) e texto claro na cor da grade
@@ -7824,7 +7844,7 @@ $btnImprimir.Add_Click({
         @{L='A'; D='Perfeito'},
         @{L='B'; D='Detalhes'},
         @{L='C'; D='Grade C'},
-        @{L='T'; D='Triagem'},
+        @{L='D'; D='Detalhe'},
         @{L='RMA'; D='Defeitos'}
     )
 
@@ -7866,10 +7886,10 @@ $btnImprimir.Add_Click({
                 $script:pinturaOpcaoAtual = ''
                 $script:gradeAtual = 'C'
                 Set-AppStatus -Texto 'Grade C selecionada' -Cor $cYellow
-            } elseif ($letraSel -eq 'T') {
+            } elseif ($letraSel -eq 'D') {
                 $script:pinturaOpcaoAtual = ''
-                $script:gradeAtual = 'T - TRIAGEM'
-                Set-AppStatus -Texto 'Grade T selecionada: Triagem' -Cor $cAccent
+                $script:gradeAtual = 'D'
+                Set-AppStatus -Texto 'Grade D selecionada: descreva o detalhe da maquina em OBSERVACOES' -Cor $cAccent
             } else {
                 $script:pinturaOpcaoAtual = ''
                 $script:gradeAtual = $letraSel
@@ -7902,8 +7922,8 @@ $btnImprimir.Add_Click({
             $btn = $script:btnGrades[$key]
             if ($key -eq 'C') {
                 $btn.Text = "C`r`nGrade C"
-            } elseif ($key -eq 'T') {
-                $btn.Text = "T`r`nTriagem"
+            } elseif ($key -eq 'D') {
+                $btn.Text = "D`r`nDetalhe"
             } elseif ($key -eq 'RMA') {
                 $btn.Text = "RMA`r`nDefeitos"
             }
@@ -8970,6 +8990,7 @@ $btnImprimir.Add_Click({
                 serial        = $info.Serial
                 tecnico       = [string]$cmbTecnico.SelectedItem
                 produtoCodigo = $produtoCodQ
+                detalheGrade  = ([string]$script:obsAtual).Trim()
                 grade         = $script:gradeAtual
                 servicos      = $servicosSelQ
                 modelo        = $info.Modelo
@@ -9948,6 +9969,7 @@ $btnImprimir.Add_Click({
     $btnConfirmar.Size = New-Object System.Drawing.Size(162, 36)
     $script:UpdateConfirmState = {
         $obsTextoSt = if ($script:obsAtual) { $script:obsAtual.Trim() } else { '' }
+        $obsLabel.Text = if ($script:gradeAtual -eq 'D') { 'DETALHE *' } else { 'OBSERVAÇÕES' }
         $needsObs = Test-CaijGradeRequiresObs $script:gradeAtual
         if ($needsObs -and [string]::IsNullOrWhiteSpace($obsTextoSt)) {
             $btnConfirmar.Text = 'Falta OBS'
@@ -10101,6 +10123,7 @@ $btnImprimir.Add_Click({
         disco   = $script:memEtiqueta
         modoManual = [bool]$script:modoManualEtiqueta
         bateria = if (& $script:IsBateriaEtiquetaVisivel $script:bateriaEtiqueta) { $script:bateriaEtiqueta } else { $null }
+        detalheGrade = ([string]$script:obsAtual).Trim()
         grade   = if ($script:rnaAtivo) { 'RMA' } elseif ($script:gradeAtual) { $script:gradeAtual } else { 'A' }
         obs     = (& $script:GetObsImpressao)
     } | ConvertTo-Json -Compress

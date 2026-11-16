@@ -5,7 +5,7 @@ function Get-CaijGradeOptions {
         'A'
         'B'
         'C'
-        'T - TRIAGEM'
+        'D'
         'RMA'
     )
 }
@@ -17,8 +17,8 @@ function Normalize-CaijGrade {
     if ($normalized -eq 'RNA') { return 'RMA' }
     if ($normalized -match '^(?:GRADE\s+)?C(?:\s*-\s*PINTURA\s*[123])?$') { return 'C' }
     if ($normalized -match '^(?:GRADE\s+)?T(?:\s*-\s*TRIAGEM)?$') { return 'T - TRIAGEM' }
-    if ($normalized -match '^GRADE\s+([AB])$') { return $matches[1] }
-    if ($normalized -in @('A', 'B', 'RMA')) { return $normalized }
+    if ($normalized -match '^GRADE\s+([ABD])$') { return $matches[1] }
+    if ($normalized -in @('A', 'B', 'D', 'RMA')) { return $normalized }
     return 'A'
 }
 
@@ -35,7 +35,7 @@ function Format-CaijGradeReference {
     if ($normalized -match '^T\s*-\s*TRIAGEM$') {
         return 'GRADE T - TRIAGEM'
     }
-    if ($normalized -in @('A', 'B')) {
+    if ($normalized -in @('A', 'B', 'D')) {
         return "GRADE $normalized"
     }
     return 'GRADE A'
@@ -45,5 +45,5 @@ function Test-CaijGradeRequiresObs {
     param([string]$Grade)
 
     $normalized = Normalize-CaijGrade $Grade
-    return ($normalized -in @('B', 'C'))
+    return ($normalized -in @('B', 'C', 'D'))
 }

@@ -26,6 +26,14 @@ if (-not (Test-Path -LiteralPath $uiIndexPath -PathType Leaf) -or
 }
 $uiIndexText = Get-Content -LiteralPath $uiIndexPath -Raw
 $windowsPreviewText = Get-Content -LiteralPath $windowsPreviewPath -Raw
+foreach ($scriptFile in Get-ChildItem -LiteralPath (Join-Path $AppRoot 'CoreCAIJ') -Filter '*.ps1' -File -Recurse) {
+    $parseTokens = $null
+    $parseErrors = $null
+    [void][Management.Automation.Language.Parser]::ParseFile($scriptFile.FullName, [ref]$parseTokens, [ref]$parseErrors)
+    if ($parseErrors.Count -gt 0) {
+        throw "PowerShell invalido em $($scriptFile.Name): $($parseErrors[0].Message)"
+    }
+}
 foreach ($scriptMatch in [regex]::Matches($uiIndexText, '<script\s+src="([^"]+)"')) {
     $scriptName = $scriptMatch.Groups[1].Value
     if ($windowsPreviewText -notmatch [regex]::Escape("'/$scriptName'")) {

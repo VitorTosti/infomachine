@@ -12,13 +12,16 @@ const keyboardMap = {
   addEventListener(name, handler) { touchpadListeners[name] = handler; },
   removeEventListener(name) { delete touchpadListeners[name]; },
   querySelector(selector) { return selector === '.windows-touchpad' ? touchpad : null; },
+  querySelectorAll() { return []; },
+  setAttribute(name, value) { this[name] = value; },
+  focus() { this.focused = true; },
 };
 const bodyListeners = {};
 const body = {
   innerHTML: '',
   addEventListener(name, handler) { bodyListeners[name] = handler; },
   removeEventListener(name) { delete bodyListeners[name]; },
-  querySelector: (selector) => selector === '.windows-keyboard' ? keyboardMap : null,
+  querySelector: (selector) => ['.windows-keyboard', '.keyboard-map'].includes(selector) ? keyboardMap : null,
   querySelectorAll: () => [...body.innerHTML.matchAll(/<kbd[^>]*data-key="([^"]+)"/g)]
     .map((match) => ({ dataset: { key: match[1] }, classList: { add() {}, remove() {} }, addEventListener() {} })),
 };
@@ -26,8 +29,18 @@ const count = { textContent: '' };
 const lastEvent = { textContent: '' };
 const lastPointer = { textContent: '' };
 const state = { info: { modelo: 'Lenovo ThinkPad E14 Gen 2' }, activeTest: 'keyboard' };
-const context = vm.createContext({ state, isWindowsPreview: true, qs: (id) => id === 'keyboardCount' ? count : id === 'keyboardLastEvent' ? lastEvent : id === 'keyboardLastPointer' ? lastPointer : body, document: { addEventListener() {}, removeEventListener() {} } });
-vm.runInContext(app.slice(app.indexOf('function normalizeKeyboardEvent('), app.indexOf('function playTestTone(')), context);
+const captureStatus = { textContent: '' };
+const focusCaptureButton = { addEventListener() {}, focus() {} };
+const elementsById = { keyboardCount: count, keyboardLastEvent: lastEvent, keyboardLastPointer: lastPointer, keyboardCaptureStatus: captureStatus, focusKeyboardCapture: focusCaptureButton };
+const listenerTarget = { addEventListener() {}, removeEventListener() {} };
+const context = vm.createContext({
+  state,
+  isWindowsPreview: true,
+  qs: (id) => elementsById[id] || body,
+  window: listenerTarget,
+  document: { ...listenerTarget, hasFocus: () => true, activeElement: null, hidden: false },
+});
+vm.runInContext(app.slice(app.indexOf('function normalizeKeyboardEvent('), app.search(/(?:async\s+)?function playTestTone\(/)), context);
 context.openKeyboardTest();
 assert.match(body.innerHTML, /data-key="FN"[^>]*>Fn<\/kbd><kbd[^>]*data-key="CONTROLLEFT"[^>]*>CTRL<\/kbd><kbd[^>]*data-key="WINDOWSLEFT"/);
 assert.match(body.innerHTML, /data-key="ALTRIGHT"[^>]*>ALT GR<\/kbd><kbd[^>]*data-key="PRINTSCREEN"[^>]*>Prt<br>Sc<\/kbd><kbd[^>]*data-key="INTLRO"[^>]*>\? \/ °<\/kbd><kbd[^>]*data-key="CONTROLRIGHT"/);
@@ -63,7 +76,7 @@ assert.equal(state.keyboardPressed.has('A'), true);
 const zoneListeners = {};
 const zone = { addEventListener(name, handler) { zoneListeners[name] = handler; }, getBoundingClientRect() { return { left: 0, top: 0 }; } };
 const pointer = { style: {} };
-const values = Object.fromEntries(['trackLeft', 'trackMiddle', 'trackRight', 'trackMoves', 'trackScrolls', 'trackLastPointer'].map((id) => [id, { textContent: '0' }]));
+const values = Object.fromEntries(['trackLeft', 'trackMiddle', 'trackRight', 'trackMoves', 'trackScrolls', 'trackLastPointer'].map((id) => [id, { textContent: '0', parentElement: { classList: { observed: false, add(name) { if (name === 'observed') this.observed = true; } } } }]));
 const trackpadContext = vm.createContext({ state: {}, qs: (id) => ({ activeTestBody: body, trackpadZone: zone, trackPointer: pointer, ...values })[id] });
 vm.runInContext(app.slice(app.indexOf('function listenForMouseButtons('), app.indexOf('function openKeyboardTest(')), trackpadContext);
 vm.runInContext(app.slice(app.indexOf('function openTrackpadTest('), app.indexOf('async function openTest(')), trackpadContext);
@@ -71,6 +84,7 @@ trackpadContext.openTrackpadTest();
 for (const [button, id] of [[0, 'trackLeft'], [1, 'trackMiddle'], [2, 'trackRight']]) {
   bodyListeners.pointerdown({ button, preventDefault() {} });
   assert.equal(values[id].textContent, 1);
+  assert.equal(values[id].parentElement.classList.observed, true);
 }
 assert.equal(values.trackLeft.textContent, 1);
 assert.equal(values.trackMiddle.textContent, 1);

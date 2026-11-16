@@ -38,7 +38,31 @@
     return !remaining;
   }
 
-  const api = Object.freeze({ services, build, fitsLabel });
+  function gradeCode(value) {
+    const normalized = String(value || "").trim().toUpperCase().replace(/^GRADE\s+/, "");
+    if (/^T(?:\s*-\s*TRIAGEM)?$/.test(normalized)) return "T";
+    if (/^C(?:\s*-\s*PINTURA\s*[123])?$/.test(normalized)) return "C";
+    return /^(?:A|B|C|D|RMA)$/.test(normalized) ? normalized : "";
+  }
+
+  function requiresDetail(value) {
+    return ["B", "C", "D"].includes(gradeCode(value));
+  }
+
+  function validateGradeDetail(value, detail) {
+    return gradeCode(value) !== "D" || Boolean(String(detail || "").trim())
+      ? ""
+      : "Descreva o detalhe da máquina em Observações para a Grade D.";
+  }
+
+  function includeGradeDetail(value, observation, detail, label = false) {
+    const text = String(observation || "").trim();
+    const note = String(detail || "").trim();
+    if (gradeCode(value) !== "D" || !note || text.includes(note)) return text;
+    return [text, `${label ? "Obs." : "Observações"}: ${note}`].filter(Boolean).join(label ? ". " : "\n");
+  }
+
+  const api = Object.freeze({ services, build, fitsLabel, gradeCode, requiresDetail, validateGradeDetail, includeGradeDetail });
   root.CAIJ_OBSERVATION = api;
   if (typeof module !== "undefined" && module.exports) module.exports = api;
 })(typeof window !== "undefined" ? window : globalThis);

@@ -43,6 +43,23 @@ $script:triagemWorkerBusy = $false
 $script:printLock = New-Object object
 $script:macCommandQueue = @{}
 
+function Assert-CaijGradeDetail {
+    param([string]$Grade, [string]$DetalheGrade)
+    if (([string]$Grade).Trim() -match '^(?i:grade\s+)?D$' -and [string]::IsNullOrWhiteSpace($DetalheGrade)) {
+        throw [System.ArgumentException]::new('Para grade D, descreva qual detalhe a maquina tem em OBSERVACOES.')
+    }
+}
+
+function Merge-CaijGradeDetail {
+    param([string]$Grade, [string]$Observacao, [string]$DetalheGrade)
+    Assert-CaijGradeDetail -Grade $Grade -DetalheGrade $DetalheGrade
+    $obs = ([string]$Observacao).Trim()
+    $detalhe = ([string]$DetalheGrade).Trim()
+    if (([string]$Grade).Trim() -match '^(?i:grade\s+)?D$' -and $obs.IndexOf($detalhe, [StringComparison]::OrdinalIgnoreCase) -lt 0) {
+        return (@($obs, $detalhe) | Where-Object { $_ }) -join ' | '
+    }
+    return $obs
+}
 function Test-TecnicoCadastroValido {
     param([string]$Tecnico)
     $nome = ([string]$Tecnico).Trim()
@@ -1844,7 +1861,8 @@ function New-VhsysOrdemServico {
         [Parameter(Mandatory=$true)][string]$ProdutoDescricao,
         [string]$ProdutoValor = '0.00',
         [object[]]$Servicos = @(),
-        [string]$Observacao = ''
+        [string]$Observacao = '',
+        [string]$DetalheGrade = ''
     )
 
     if (-not (Test-TecnicoCadastroValido -Tecnico $Tecnico)) {
@@ -1854,6 +1872,7 @@ function New-VhsysOrdemServico {
     if ($IdProduto -lt 1) { throw 'Produto sem id_produto valido' }
     if (-not $ProdutoDescricao.Trim()) { throw 'Descricao do produto obrigatoria' }
 
+    $Observacao = Merge-CaijGradeDetail -Grade $Referencia -Observacao $Observacao -DetalheGrade $DetalheGrade
     $cfg = Read-AltertagApiConfig
     try {
         $produtoCatalogo = Get-VhsysProdutoCatalogoPorId -Config $cfg -IdProduto $IdProduto
@@ -2285,10 +2304,12 @@ function Invoke-AltertagTriagem {
         [string]$Cliente,
         [string]$ProdutoCodigo,
         [string]$Grade,
+        [string]$DetalheGrade = '',
         [string[]]$Servicos,
         [switch]$GradeComoServico = $true
     )
 
+    Assert-CaijGradeDetail -Grade $Grade -DetalheGrade $DetalheGrade
     # Automacao via Brave (perfil logado da maquina principal).
     # Obs: em sites com CAPTCHA/JS moderno pode falhar e retornar erro controlado.
     $url = 'https://app.altertag.com.br/index.php?Secao=Servicos.Ordem&Modulo=Servicos#!cadastrar'
@@ -2318,6 +2339,7 @@ function Invoke-AltertagTriagem {
             tecnico = $Tecnico
             produto = $ProdutoCodigo
             garantia = $Serial
+            detalheGrade = $DetalheGrade
             referencia = $Grade
             servicos = $servicosTxt
         } | ConvertTo-Json -Compress
@@ -2549,6 +2571,11 @@ $js = @"
     }
   }
 
+  if(data.detalheGrade){
+    const obs = fieldNearLabel('Observacao') || fieldByGeometry('Observacao') || fieldNearLabel('Observacoes') || fieldByGeometry('Observacoes');
+    if(!obs){ return { ok:false, mensagem:'Campo de observacao nao encontrado; detalhe da grade D nao foi salvo.' }; }
+    setVal(obs, [obs.value, data.detalheGrade].filter(Boolean).join(' | '));
+  }
   const save = [...document.querySelectorAll('button,input[type=submit],a')]
     .find(x => visible(x) && /salvar|cadastrar|gravar/i.test(x.innerText || x.value || ''));
   if(save){
@@ -2608,8 +2635,10 @@ function New-TriagemJob {
         [string]$Cliente,
         [string]$ProdutoCodigo,
         [string]$Grade,
+        [string]$DetalheGrade = '',
         [string[]]$Servicos
     )
+    Assert-CaijGradeDetail -Grade $Grade -DetalheGrade $DetalheGrade
     $id = [guid]::NewGuid().ToString('N')
     $job = [ordered]@{
         id = $id
@@ -2626,6 +2655,7 @@ function New-TriagemJob {
             tecnico = $Tecnico
             cliente = $Cliente
             produtoCodigo = $ProdutoCodigo
+            detalheGrade = $DetalheGrade
             grade = $Grade
             servicos = @($Servicos)
         }
@@ -2670,7 +2700,7 @@ function Process-TriagemQueue {
 
         $p = $job.payload
         Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Worker triagem iniciando job=$($job.id) serial=$($p.serial) produto=$($p.produtoCodigo)"
-        $out = Invoke-AltertagTriagem -Serial $p.serial -Tecnico $p.tecnico -Cliente $p.cliente -ProdutoCodigo $p.produtoCodigo -Grade $p.grade -Servicos $p.servicos
+        $out = Invoke-AltertagTriagem -Serial $p.serial -Tecnico $p.tecnico -Cliente $p.cliente -ProdutoCodigo $p.produtoCodigo -Grade $p.grade -DetalheGrade $p.detalheGrade -Servicos $p.servicos
 
         Invoke-TriagemLock {
             if ($out.ok) {
@@ -3215,7 +3245,14 @@ function Invoke-CaijHttpRequest {
                 '/mac/index.html' { 'index.html' }
                 '/mac/style.css' { 'style.css' }
                 '/mac/app.js' { 'app.js' }
+                '/mac/qr-encoder.js' { 'qr-encoder.js' }
+                '/mac/qr-preview.js' { 'qr-preview.js' }
+                '/mac/animated-gradient.js' { 'animated-gradient.js' }
                 '/mac/portable.js' { 'portable.js' }
+                '/mac/observation.js' { 'observation.js' }
+                '/mac/test-checklist.js' { 'test-checklist.js' }
+                '/mac/storage.js' { 'storage.js' }
+                '/mac/serial-os.js' { 'serial-os.js' }
                 '/mac/runtime-loader.js' { 'runtime-loader.js' }
                 '/mac/logo.png' { 'logo.png' }
                 '/mac/caij-runtime.js' { 'runtime' }
@@ -3649,6 +3686,8 @@ function Invoke-CaijHttpRequest {
                     $valorReq = if ($dados.produtoValor) { [string]$dados.produtoValor } else { '0.00' }
                     $servReq = @($dados.servicos)
                     $observacaoReq = ([string]$dados.observacao).Trim()
+                    $detalheGradeReq = ([string]$dados.detalheGrade).Trim()
+                    Assert-CaijGradeDetail -Grade $refReq -DetalheGrade $detalheGradeReq
                     if ($idProdutoReq -lt 1 -and $codigoProdutoReq) {
                         Write-Host "[$horario] Resolvendo produto pelo codigo: $codigoProdutoReq"
                         $produtoResolvido = Resolve-VhsysProdutoCatalogo -Codigo $codigoProdutoReq -Descricao $produtoReq
@@ -3660,7 +3699,7 @@ function Invoke-CaijHttpRequest {
                     }
 
                     Write-Host "[$horario] Criando OS Altertag via API | Serial=$serialReq | Tecnico=$tecReq | Produto=$idProdutoReq"
-                    $out = New-VhsysOrdemServico -Tecnico $tecReq -Serial $serialReq -Referencia $refReq -IdProduto $idProdutoReq -ProdutoDescricao $produtoReq -ProdutoValor $valorReq -Servicos $servReq -Observacao $observacaoReq
+                    $out = New-VhsysOrdemServico -Tecnico $tecReq -Serial $serialReq -Referencia $refReq -IdProduto $idProdutoReq -ProdutoDescricao $produtoReq -ProdutoValor $valorReq -Servicos $servReq -Observacao $observacaoReq -DetalheGrade $detalheGradeReq
                     $estadoAposCriacao = Get-OsState
                     $json = (@{
                         status='ok'
@@ -3687,7 +3726,7 @@ function Invoke-CaijHttpRequest {
                 } catch {
                     Write-Host "[$horario] Erro /criar-os-altertag: $($_.Exception.Message)"
                     $json = (@{ status='erro'; mensagem=("Falha ao criar OS Altertag: " + $_.Exception.Message) } | ConvertTo-Json -Compress)
-                    $response.StatusCode = 500
+                    $response.StatusCode = if ($_.Exception -is [System.ArgumentException]) { 400 } else { 500 }
                 }
             }
 
@@ -3705,7 +3744,9 @@ function Invoke-CaijHttpRequest {
                     $ramReq    = [string]$dados.ram
                     $discoReq  = [string]$dados.disco
                     $codManual = [string]$dados.produtoCodigo
-                    $gradeReq  = [string]$dados.grade
+                        $gradeReq  = [string]$dados.grade
+                    $detalheGradeReq = ([string]$dados.detalheGrade).Trim()
+                    Assert-CaijGradeDetail -Grade $gradeReq -DetalheGrade $detalheGradeReq
                     $servReq   = @($dados.servicos)
                     if (-not $serialReq -or $serialReq.Trim() -eq '') {
                         $json = '{"status":"erro","mensagem":"Campo serial obrigatorio"}'
@@ -3725,7 +3766,7 @@ function Invoke-CaijHttpRequest {
                             $response.StatusCode = 202
                         } else {
                             $codigoProduto = [string]$resProduto.codigo
-                            $job = New-TriagemJob -Serial $serialReq.Trim() -Tecnico $tecReq -Cliente $clientePadrao -ProdutoCodigo $codigoProduto -Grade $gradeReq -Servicos $servReq
+                            $job = New-TriagemJob -Serial $serialReq.Trim() -Tecnico $tecReq -Cliente $clientePadrao -ProdutoCodigo $codigoProduto -Grade $gradeReq -DetalheGrade $detalheGradeReq -Servicos $servReq
                             Write-Host "[$horario] Triagem enfileirada | id=$($job.id) | Serial=$($serialReq.Trim()) | Produto=$codigoProduto"
                             $json = (@{
                                 status='ok'
@@ -3785,6 +3826,8 @@ function Invoke-CaijHttpRequest {
                 $discoReq  = [string]$dados.disco
                 $codManual = [string]$dados.produtoCodigo
                 $gradeReq  = [string]$dados.grade
+                $detalheGradeReq = ([string]$dados.detalheGrade).Trim()
+                Assert-CaijGradeDetail -Grade $gradeReq -DetalheGrade $detalheGradeReq
                 $servReq   = @($dados.servicos)
                 if (-not $serialReq -or $serialReq.Trim() -eq '') {
                     $json = '{"status":"erro","mensagem":"Campo serial obrigatorio"}'
@@ -3822,7 +3865,7 @@ function Invoke-CaijHttpRequest {
                     } else {
                         $codigoProduto = [string]$resProduto.codigo
                         Write-Host "[$horario] Triagem iniciada | Serial=$($serialReq.Trim()) | Tecnico=$tecReq | Produto=$codigoProduto"
-                        $out = Invoke-AltertagTriagem -Serial $serialReq.Trim() -Tecnico $tecReq -Cliente $clientePadrao -ProdutoCodigo $codigoProduto -Grade $gradeReq -Servicos $servReq
+                        $out = Invoke-AltertagTriagem -Serial $serialReq.Trim() -Tecnico $tecReq -Cliente $clientePadrao -ProdutoCodigo $codigoProduto -Grade $gradeReq -DetalheGrade $detalheGradeReq -Servicos $servReq
                     if ($out.ok) {
                         $json = (@{ status='ok'; mensagem=$out.mensagem; osNumero=$out.osNumero; produtoCodigo=$codigoProduto; cliente=$clientePadrao; tecnico=$tecReq; garantia=$serialReq.Trim(); grade=$gradeReq; servicos=$servReq } | ConvertTo-Json -Compress)
                         $response.StatusCode = 200
@@ -3941,6 +3984,14 @@ function Invoke-CaijHttpRequest {
             Write-Host "[$horario] Recebido: $($raw.Substring(0,[math]::Min($raw.Length,80)))"
 
             $dados = $raw | ConvertFrom-Json
+            try {
+                $obsMerged = Merge-CaijGradeDetail -Grade ([string]$dados.grade) -Observacao ([string]$dados.obs) -DetalheGrade ([string]$dados.detalheGrade)
+                $dados | Add-Member -NotePropertyName obs -NotePropertyValue $obsMerged -Force
+            } catch [System.ArgumentException] {
+                $response.StatusCode = 400
+                $json = (@{ status='erro'; mensagem=$_.Exception.Message } | ConvertTo-Json -Compress)
+                break
+            }
             Write-Host "[$horario] Montando etiqueta para: $($dados.serial)"
 
             # Limpa caracteres especiais para ASCII
@@ -4140,23 +4191,66 @@ function Invoke-CaijHttpRequest {
             $mostrarGpu = ($gpu -and $gpu.Trim() -ne '' -and $gpu -notmatch '^(?i:N/?A|Nao identificada|Não identificada)$')
             $mostrarBateria = (-not $isDesktop -and $bateria -and $bateria.Trim() -ne '')
             $gradeRaw = if ($dados.grade) { ([string]$dados.grade).Trim().ToUpper() } else { '' }
+            if ($gradeRaw -match '^GRADE\s+D$') { $gradeRaw = 'D' }
             if ($gradeRaw -eq 'RNA') { $gradeRaw = 'RMA' }
             if ($gradeRaw -match '^(?:GRADE\s+)?C(?:\s*-\s*PINTURA\s*[123])?$') {
                 $grade = 'C'
             } elseif ($gradeRaw -match '^(?:GRADE\s*)?T(?:\s*-\s*TRIAGEM)?$') {
                 $grade = 'T - TRIAGEM'
-            } elseif ($gradeRaw -in @('A','B','C','RMA')) {
+            } elseif ($gradeRaw -in @('A','B','C','D','RMA')) {
                 $grade = $gradeRaw
             } else {
                 $grade = ''
             }
+            function Wrap-TsplLines {
+                param(
+                    [string]$Text,
+                    [int]$MaxLen = 46,
+                    [int]$MaxLines = 3
+                )
+                $clean = ([string]$Text -replace '\s+', ' ').Trim()
+                if (-not $clean) { return @() }
+                $lines = New-Object System.Collections.Generic.List[string]
+                $remaining = $clean
+                while ($remaining -and $lines.Count -lt $MaxLines) {
+                    if ($remaining.Length -le $MaxLen) {
+                        $lines.Add($remaining)
+                        $remaining = ''
+                        break
+                    }
+                    $breakAt = $remaining.LastIndexOf(' ', [Math]::Min($MaxLen, ($remaining.Length - 1)))
+                    if ($breakAt -lt [Math]::Floor($MaxLen * 0.55)) { $breakAt = $MaxLen }
+                    $lines.Add($remaining.Substring(0, $breakAt).Trim())
+                    $remaining = $remaining.Substring($breakAt).Trim()
+                }
+                if ($remaining -and $lines.Count -gt 0) {
+                    $last = $lines[$MaxLines - 1]
+                    $cutLen = [math]::Min($last.Length, [math]::Max(0, $MaxLen - 3))
+                    $lines[$MaxLines - 1] = $last.Substring(0, $cutLen).TrimEnd() + '...'
+                }
+                return @($lines)
+            }
+
             $obsQr = if ($dados.obs) { ([string]$dados.obs).Trim() } else { '' }
             $obs   = if ($obsQr) {
                            $obsVisual = Format-ObservacaoEtiqueta $obsQr
                            $tmp = Limpar $obsVisual '!,;:/%'
+                           if ($grade -eq 'D' -and $tmp.Length -gt 180) {
+                               $response.StatusCode = 400
+                               $json = (@{ status='erro'; mensagem='A observacao da grade D excede o espaco da etiqueta (180 caracteres). Resuma os detalhes antes de imprimir.' } | ConvertTo-Json -Compress)
+                               break
+                           }
                            if ($tmp.Length -gt 180) { $tmp.Substring(0, 180) } else { $tmp }
                        } else { '' }
 
+            if ($grade -eq 'D') {
+                $obsSemCortes = ((Wrap-TsplLines -Text $obs -MaxLen 69 -MaxLines 3) -join ' ')
+                if ($obsSemCortes -ne ($obs -replace '\s+', ' ').Trim()) {
+                    $response.StatusCode = 400
+                    $json = (@{ status='erro'; mensagem='Os detalhes da grade D nao cabem nas tres linhas da etiqueta. Resuma a observacao antes de imprimir.' } | ConvertTo-Json -Compress)
+                    break
+                }
+            }
             # ================================================
             # TSPL 80x50mm = aproximadamente 640x400 dots @ 203dpi.
             # Manter a altura alinhada ao rolo evita feed em branco e erro de gap.
@@ -4266,35 +4360,6 @@ function Invoke-CaijHttpRequest {
                 }
             }
             $tspl += "BAR 18,158,604,2`r`n"
-
-            function Wrap-TsplLines {
-                param(
-                    [string]$Text,
-                    [int]$MaxLen = 46,
-                    [int]$MaxLines = 3
-                )
-                $clean = ([string]$Text -replace '\s+', ' ').Trim()
-                if (-not $clean) { return @() }
-                $lines = New-Object System.Collections.Generic.List[string]
-                $remaining = $clean
-                while ($remaining -and $lines.Count -lt $MaxLines) {
-                    if ($remaining.Length -le $MaxLen) {
-                        $lines.Add($remaining)
-                        $remaining = ''
-                        break
-                    }
-                    $breakAt = $remaining.LastIndexOf(' ', [Math]::Min($MaxLen, ($remaining.Length - 1)))
-                    if ($breakAt -lt [Math]::Floor($MaxLen * 0.55)) { $breakAt = $MaxLen }
-                    $lines.Add($remaining.Substring(0, $breakAt).Trim())
-                    $remaining = $remaining.Substring($breakAt).Trim()
-                }
-                if ($remaining -and $lines.Count -gt 0) {
-                    $last = $lines[$MaxLines - 1]
-                    $cutLen = [math]::Min($last.Length, [math]::Max(0, $MaxLen - 3))
-                    $lines[$MaxLines - 1] = $last.Substring(0, $cutLen).TrimEnd() + '...'
-                }
-                return @($lines)
-            }
 
             # Metade inferior: uma unica divisoria separa configuracao e QR.
             $obsLines = @()

@@ -130,4 +130,17 @@ $info.GPU = 'Nao identificada'
 $payloadSemGpu = New-CaijPrintPayload -Info $info -OsNumero 235 -Grade 'A' -Obs '' -IncludeOs:$true -Manual:$false
 Assert-True ($null -eq $payloadSemGpu.gpu) 'payload sem gpu desconhecida'
 
+Assert-Equal (Resolve-CaijGradeSelection -Grade 'D') 'D' 'grade D preservada'
+Assert-Equal (Resolve-CaijGradeSelection -Grade 'GRADE D') 'D' 'referencia D normalizada'
+foreach ($blankDetail in @('', ' ', "`t`r`n")) {
+    $blockedD = $false
+    try { New-CaijPrintPayload -Info $info -OsNumero 235 -Grade 'D' -Obs $blankDetail | Out-Null }
+    catch { $blockedD = $true }
+    Assert-True $blockedD 'Grade D nao imprime com detalhe livre vazio'
+}
+$payloadD = New-CaijPrintPayload -Info $info -OsNumero 235 -Grade 'D' -Obs 'Risco profundo na tampa'
+Assert-Equal $payloadD.grade 'D' 'payload etiqueta D'
+Assert-Equal $payloadD.detalheGrade 'Risco profundo na tampa' 'payload etiqueta preserva detalhe cru D'
+Assert-Equal $payloadD.obs 'Risco profundo na tampa' 'payload etiqueta preserva observacao D'
+
 'OK: InfoNotebookMac tests'
