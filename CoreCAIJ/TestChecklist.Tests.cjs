@@ -25,7 +25,7 @@ const manualAudio = complete(); manualAudio.items.find(item => item.id === 'audi
 assert.equal(valid(manualAudio), true, 'Detecção falha permite justificativa manual');
 const appSource = fs.readFileSync(`${__dirname}/mac-ui/app.js`, 'utf8');
 const rendered = { innerHTML: '', textContent: '' };
-const uiState = { activeTest: 'audio', testChecklist: complete().items };
+const uiState = { activeTest: 'audio', testChecklist: complete().items, checklistNotesOpen: new Set() };
 const ui = vm.createContext({ state: uiState, qs: id => id === 'hardwareChecklistItems' ? rendered : id === 'usbPortTools' ? { classList: { toggle() {} } } : rendered,
   escapeHtml: value => String(value), window: { CAIJ_TEST_CHECKLIST: checklist } });
 vm.runInContext(appSource.slice(appSource.indexOf('const evidenceRequiredItems'), appSource.indexOf('function renderTestConfirmation(')), ui);
@@ -35,6 +35,14 @@ assert.doesNotMatch(rendered.innerHTML, /data-evidence-manual=/, 'Com detecção
 delete uiState.testChecklist.find(item => item.id === 'audio.speakers').evidence;
 ui.renderHardwareChecklist();
 assert.match(rendered.innerHTML, /Detecção falhou\? Registrar verificação manual/);
+assert.doesNotMatch(rendered.innerHTML, /data-check-value="pending"/, 'Limpar por item deixa de existir');
+assert.match(rendered.innerHTML, /hardware-check-compact/);
+assert.match(rendered.innerHTML, /data-note-open="audio\.speakers"/, 'observação opcional fica recolhida');
+uiState.testChecklist.find(item => item.id === 'audio.speakers').result = 'failed';
+ui.renderHardwareChecklist();
+assert.match(rendered.innerHTML, /Justificativa obrigatória/);
+assert.match(rendered.innerHTML, /data-blocked="justification"/);
+uiState.testChecklist.find(item => item.id === 'audio.speakers').result = 'passed';
 manualAudio.confirmedAt = '2026-11-16T12:00:00Z'; manualAudio.fingerprint = checklist.fingerprint(manualAudio);
 assert.match(checklist.buildReport(manualAudio), /Alto-falantes.*\[Aprovado – manual\][\s\S]*Evidência manual: Saída testada/);
 for (const field of ['technician', 'serial']) {

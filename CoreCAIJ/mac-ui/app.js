@@ -37,6 +37,7 @@ const state = {
   keyboardHandler: null,
   keyboardPressed: null,
   keyboardRecentEvents: [],
+  checklistNotesOpen: new Set(),
   keyboardCaptureCleanup: null,
   keyboardLayoutE14: null,
   mouseButtonCleanup: null,
@@ -1160,22 +1161,21 @@ function renderTestRail() {
 
 function renderHardwareChecklist() {
   const test = state.activeTest;
+  const blocked = new Map(testBlockers(test).map((blocker) => [blocker.id, blocker.reason]));
   qs("hardwareChecklistItems").innerHTML = state.testChecklist.filter((item) => item.testId === test).map((item) => {
     const exception = ["failed", "untested"].includes(item.result);
-    const compact = test === "usb";
     const removable = item.id.startsWith("usb.port-") ? `<button type="button" class="usb-port-remove" data-usb-remove="${item.id}" aria-label="Remover ${escapeHtml(item.label)}" title="Remover porta">×</button>` : "";
-    const identity = `<span class="hardware-check-label">${escapeHtml(item.label)}</span>${removable}`;
+    const showNote = exception || Boolean(item.notes) || state.checklistNotesOpen.has(item.id);
+    const addNote = showNote ? "" : `<button type="button" class="hardware-check-add-note" data-note-open="${item.id}">+ observação</button>`;
     const resultButton = (result, text) => `<button type="button" class="check-result-button check-result-${result}" data-check-result="${item.id}" data-check-value="${result}" aria-pressed="${item.result === result}">${text || escapeHtml(window.CAIJ_TEST_CHECKLIST.resultLabels[result])}</button>`;
-    const choices = `<fieldset class="check-result-options"><legend>Resultado: ${escapeHtml(item.label)}</legend><div class="check-result-main">${resultButton("passed", '<span aria-hidden="true">✓</span> Aprovado')}${resultButton("failed", '<span aria-hidden="true">×</span> Reprovado')}</div><div class="check-result-exceptions">${resultButton("not_applicable")}${resultButton("untested")}${resultButton("pending", "Limpar")}</div></fieldset>`;
+    const choices = `<fieldset class="check-result-options"><legend>Resultado: ${escapeHtml(item.label)}</legend>${resultButton("passed", '<span aria-hidden="true">✓</span> Aprovado')}${resultButton("failed", '<span aria-hidden="true">✕</span> Reprovado')}${resultButton("not_applicable")}${resultButton("untested")}</fieldset>`;
     const requiresEvidence = evidenceRequiredItems.includes(item.id);
     const evidenceView = requiresEvidence ? `<p class="hardware-check-evidence">${item.evidence ? `${item.evidence.source === "manual" ? "Verificação manual" : "Detecção registrada"}: ${escapeHtml(item.evidence.detail)}` : "Aguardando detecção automática."}</p>${item.evidence?.source === "auto" ? "" : `<button type="button" class="secondary hardware-check-manual" data-evidence-manual="${item.id}">${item.evidence?.source === "manual" ? "Alterar justificativa manual" : "Detecção falhou? Registrar verificação manual"}</button>`}` : "";
-    const note = compact && !exception && !item.notes ? "" : `<label class="hardware-check-note" for="note-${item.id}">${exception ? "Justificativa obrigatória" : "Detalhe da verificação (opcional)"}<input id="note-${item.id}" data-check-note="${item.id}" maxlength="500" value="${escapeHtml(item.notes)}"${exception ? " required" : ""} placeholder="Descreva o comportamento observado ou o motivo da exceção"></label>`;
-    return `<article class="hardware-check-item${compact ? " hardware-check-compact" : ""}" data-result="${item.result}"><div class="hardware-check-identity">${identity}${evidenceView}</div>${choices}${note}</article>`;
+    const note = showNote ? `<label class="hardware-check-note" for="note-${item.id}">${exception ? "Justificativa obrigatória" : "Observação (opcional)"}<input id="note-${item.id}" data-check-note="${item.id}" maxlength="500" value="${escapeHtml(item.notes)}"${exception ? " required" : ""} placeholder="${exception ? "Descreva o defeito ou o motivo de não ter testado" : "Detalhe observado"}"></label>` : "";
+    return `<article class="hardware-check-item hardware-check-compact" data-result="${item.result}"${blocked.has(item.id) ? ` data-blocked="${blocked.get(item.id)}"` : ""}><div class="hardware-check-identity"><span class="hardware-check-label">${escapeHtml(item.label)}</span>${removable}${addNote}${evidenceView}</div>${choices}${note}</article>`;
   }).join("");
   qs("usbPortTools").classList.toggle("hidden", test !== "usb");
-  qs("hardwareChecklistStatus").textContent = test === "usb" ? "Conecte um dispositivo em cada porta e marque o resultado. Reprovado ou Não testado pede justificativa."
-    : ["charger", "network", "hdmi"].includes(test)
-    ? "Conecte o acessório e verifique o funcionamento. Registre manualmente o resultado de cada item; esta etapa não faz detecção automática." : "Registre o resultado de cada item e use os botões acima para avançar.";
+  qs("hardwareChecklistStatus").textContent = "";
 }
 
 function renderTestConfirmation() {
@@ -1946,7 +1946,7 @@ async function openTest(test) {
   if (test === "audio") openAudioTest();
   if (test === "screen") openScreenTest();
   if (test === "trackpad") openTrackpadTest();
-  if (["usb", "charger", "network", "hdmi"].includes(test)) qs("activeTestBody").innerHTML = `<div class="connector-test-guide"><strong>${escapeHtml(testLabels[test])}</strong><p>${escapeHtml({ usb: "Use um dispositivo USB conhecido em cada porta. Confira reconhecimento e uso; diferencie USB-A, USB-C e posição. Adicione todas as portas da máquina abaixo.", charger: "Teste cada conector de carregamento disponível no equipamento. Confira se todos funcionam e se os encaixes estão firmes, sem folga.", network: "Teste Ethernet e Wi-Fi separadamente. Anote conexão, acesso à rede local e à internet. A falta de internet deve ser diferenciada de defeito no adaptador.", hdmi: "Conecte um cabo HDMI e confira se a saída funciona e mantém a imagem estável. Anote eventual falha ou adaptador utilizado." }[test])}</p></div>`;
+  if (["usb", "charger", "network", "hdmi"].includes(test)) qs("activeTestHelp").textContent = { usb: "Use um dispositivo USB conhecido em cada porta. Confira reconhecimento e uso; diferencie USB-A, USB-C e posição. Use +1 USB ou +1 USB-C para incluir as demais portas.", charger: "Teste cada conector de carregamento disponível no equipamento. Confira se todos funcionam e se os encaixes estão firmes, sem folga.", network: "Teste Ethernet e Wi-Fi separadamente. Anote conexão, acesso à rede local e à internet. A falta de internet deve ser diferenciada de defeito no adaptador.", hdmi: "Conecte um cabo HDMI e confira se a saída funciona e mantém a imagem estável. Anote eventual falha ou adaptador utilizado." }[test];
   if (test === "charger") {
     let disconnected = false;
     qs("activeTestBody").insertAdjacentHTML("beforeend", '<div class="connector-test-guide"><p>Desconecte o carregador e registre a leitura. Depois conecte-o e registre novamente.</p><button type="button" id="powerDisconnected">1. Ler desconectado</button> <button type="button" id="powerConnected">2. Ler conectado</button><p id="powerStatus" role="status">Aguardando a primeira leitura.</p></div>');
@@ -2340,6 +2340,8 @@ function wireControls() {
       renderHardwareChecklist(); renderTests(); renderActiveTestNavigation();
       return;
     }
+    const noteId = event.target.closest("[data-note-open]")?.dataset.noteOpen;
+    if (noteId) { state.checklistNotesOpen.add(noteId); renderHardwareChecklist(); qs(`note-${noteId}`)?.focus(); return; }
     const manualId = event.target.closest("[data-evidence-manual]")?.dataset.evidenceManual;
     if (manualId) {
       const item = state.testChecklist.find((entry) => entry.id === manualId);
@@ -2353,14 +2355,15 @@ function wireControls() {
     if (!target) return;
     const id = target.dataset.checkResult;
     const item = state.testChecklist.find((entry) => entry.id === id);
-    const result = target.dataset.checkValue;
-    if (!item || !window.CAIJ_TEST_CHECKLIST.results.includes(result) || item.result === result) return;
+    let result = target.dataset.checkValue;
+    if (!item || !window.CAIJ_TEST_CHECKLIST.results.includes(result)) return;
+    if (item.result === result) result = "pending";
     if (evidenceRequiredItems.includes(id) && result === "passed" && !item.evidence) { qs("hardwareChecklistStatus").textContent = "Registre a detecção ou confirme manualmente com justificativa antes de aprovar."; return; }
     invalidateTestConfirmation();
     item.result = result;
     renderTests();
     renderHardwareChecklist();
-    [...qs("hardwareChecklistItems").querySelectorAll("button[data-check-result]")].find((button) => button.dataset.checkResult === id && button.dataset.checkValue === result)?.focus({ preventScroll: true });
+    [...qs("hardwareChecklistItems").querySelectorAll("button[data-check-result]")].find((button) => button.dataset.checkResult === id && button.dataset.checkValue === target.dataset.checkValue)?.focus({ preventScroll: true });
     renderActiveTestNavigation();
   });
   qs("hardwareChecklistItems").addEventListener("input", (event) => {

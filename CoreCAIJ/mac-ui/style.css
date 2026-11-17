@@ -5992,3 +5992,25 @@ body:has(#testsView:not(.hidden)), .app-shell:has(#testsView:not(.hidden)) { min
 #testsView .test-confirmation-entry { grid-template-columns: minmax(0, 320px); }
 #testsView .tests-review-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 16px; }
 #testsView .tests-review-tools small { color: #afc0cf; font-size: 13px; }
+
+/* Checklist compacto: nome e resultado na mesma linha. */
+#testsView .hardware-check-item { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 20px; align-items: center; padding: 9px 12px; border-bottom: 1px solid #24384d; border-left: 3px solid transparent; transition: background-color .15s ease-out, border-color .15s ease-out; }
+#testsView .hardware-check-item[data-result=passed] { padding-left: 12px; border-left-color: #7ce5c0; background: rgba(124, 229, 192, .08); }
+#testsView .hardware-check-item[data-result=failed] { padding-left: 12px; border-left-color: #ffacb9; background: rgba(255, 172, 185, .08); }
+#testsView .hardware-check-item[data-result=untested] { border-left-color: #c6ab68; background: rgba(198, 171, 104, .08); }
+#testsView .hardware-check-item[data-result=not_applicable] { border-left-color: #6b8196; }
+#testsView .show-blockers .hardware-check-item[data-blocked] { outline: 1px solid #c6ab68; outline-offset: -1px; border-left-color: #c6ab68; }
+#testsView .hardware-check-identity { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; min-width: 0; }
+#testsView .hardware-check-label { font-size: 15px; line-height: 1.4; }
+#testsView .hardware-check-evidence { flex: 1 0 100%; }
+#testsView .hardware-check-add-note { min-height: 28px; padding: 2px 6px; border: 0; border-radius: 6px; background: transparent; color: #8fa3b5; font: inherit; font-size: 12px; cursor: pointer; }
+#testsView .hardware-check-add-note:hover { color: #dce8f2; text-decoration: underline; }
+#testsView .hardware-check-add-note:focus-visible { outline: 2px solid #b7f8eb; }
+#testsView .check-result-options { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+#testsView .check-result-options .check-result-button { min-height: 40px; padding: 0 12px; font-size: 13px; white-space: nowrap; }
+#testsView .check-result-options .check-result-button span { margin-right: 4px; font-size: 15px; }
+#testsView .check-result-options .check-result-not_applicable, #testsView .check-result-options .check-result-untested { color: #b9c9d8; font-weight: 500; }
+#testsView .check-result-options .check-result-not_applicable[aria-pressed=true] { color: #101e2e; background: #b9c9d8; border-color: #b9c9d8; font-weight: 600; }
+#testsView .check-result-options .check-result-untested[aria-pressed=true] { color: #2b230a; background: #e5cf8f; border-color: #e5cf8f; font-weight: 600; }
+#testsView .hardware-check-item .hardware-check-note { grid-column: 1 / -1; margin: 0; }
+#testsView .hardware-check-note input { margin-top: 4px; }
