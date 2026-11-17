@@ -1062,6 +1062,10 @@ function syncTestsViewport() {
   const card = document.querySelector("#testsView .tests-card");
   if (!card || qs("testsView").classList.contains("hidden")) return;
   card.style.setProperty("--tests-top", `${Math.max(0, Math.round(card.getBoundingClientRect().top + window.scrollY))}px`);
+  // Whatever the shell adds below the card (margins, padding) is measured, so the page itself never scrolls.
+  card.style.setProperty("--tests-bottom", "28px");
+  const overflow = document.documentElement.scrollHeight - window.innerHeight;
+  if (overflow > 0) card.style.setProperty("--tests-bottom", `${28 + overflow}px`);
 }
 
 function testConfirmationData() {
@@ -1173,7 +1177,7 @@ function renderTestRail() {
     const railState = testRailState(test);
     const [icon, text] = railStateLabels[railState];
     const status = railState === "incomplete" ? `Falta ${testBlockers(test).length}` : text;
-    return `<li data-state="${railState}"${test === state.activeTest ? ' aria-current="step"' : ""}><button type="button" data-rail-test="${test}"><span class="rail-icon" aria-hidden="true">${icon}</span><span class="rail-copy"><strong>${escapeHtml(testLabels[test])}</strong><span>${status}</span></span></button></li>`;
+    return `<li data-state="${railState}"${test === state.activeTest ? ' aria-current="step"' : ""}><button type="button" data-rail-test="${test}" title="${escapeHtml(testLabels[test])}: ${status}"><span class="rail-icon" aria-hidden="true">${icon}</span><span class="rail-copy"><strong>${escapeHtml(testLabels[test])}</strong><span>${status}</span></span></button></li>`;
   });
   entries.push(`<li class="rail-review" data-state="review"${state.activeTest === "review" ? ' aria-current="step"' : ""}><button type="button" data-rail-test="review"><span class="rail-icon" aria-hidden="true">▸</span><span class="rail-copy"><strong>Revisão e confirmação</strong></span></button></li>`);
   qs("testRail").innerHTML = entries.join("");
@@ -1405,6 +1409,7 @@ function renderActiveTestNavigation() {
   }
   renderTestRail();
   renderActionBar();
+  qs("testRail").querySelector('[aria-current="step"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
 async function completeActiveTest(result) {

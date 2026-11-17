@@ -277,6 +277,7 @@ Assert-True ($indexText -match 'id="finishTests">Concluir e voltar</button>') 'c
 Assert-True ($indexText -notmatch 'id="addTestsToObs"|Adicionar a observa') 'central nao exige inclusao manual nas observacoes'
 Assert-True ($styleText -match '#testRail li\[data-state=passed\]') 'central diferencia visualmente teste aprovado'
 Assert-True ($styleText -match '#testRail li\[data-state=failed\]') 'central diferencia visualmente teste reprovado'
+Assert-True ($styleText -match '@media \(max-width: 1000px\) \{\s*#testsView \.tests-body[\s\S]*?#testRail \{ display: flex;[^}]*overflow-x:\s*auto') 'lista de testes vira faixa horizontal em janela estreita'
 Assert-True ($styleText -match '@media \(max-width: 560px\)') 'central se adapta a janela estreita'
 Assert-True ($indexText -match 'class="device-table-wrap"') 'leitura do Mac possui area para tabela tecnica'
 Assert-True ($appText -match '<table class="device-table">') 'leitura do Mac renderiza tabela tecnica'

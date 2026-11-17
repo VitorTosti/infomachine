@@ -6057,3 +6057,54 @@ body:has(#testsView:not(.hidden)), .app-shell:has(#testsView:not(.hidden)) { min
 #testsView #testPanel:has(#activeTestBody:empty) .hardware-checklist { max-height: none; margin-top: 0; }
 #testsView #testReviewPanel { min-height: 0; padding: 16px 20px; overflow-y: auto; }
 #testsView .tests-action-bar #finishTests { border: 1px solid #7ce5c0; color: #082c24; background: #7ce5c0; }
+
+/* Janela estreita: a lista lateral vira uma faixa horizontal; a barra de ação continua fixa. */
+@media (max-width: 1000px) {
+  #testsView .tests-body { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  #testsView .tests-rail { padding: 6px; overflow: visible; }
+  #testRail { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: thin; }
+  #testRail li { flex: 0 0 auto; }
+  #testRail li[data-state=review] { margin-top: 0; }
+  #testRail button { min-height: 44px; padding: 6px 10px; white-space: nowrap; }
+  #testRail .rail-copy span { display: none; }
+  #testRail li[data-state=incomplete] .rail-copy span { display: inline; }
+  #testsView .tests-head { flex-wrap: wrap; gap: 8px 16px; }
+  #testsView .tests-progress { width: 90px; }
+  #testsView .tests-action-bar { flex-wrap: wrap; gap: 8px 16px; padding: 10px 12px; }
+  #testsView .tests-action-bar .active-test-buttons { flex: 1 1 auto; }
+  #testsView .tests-action-bar .active-test-buttons button { flex: 1 1 auto; }
+  #testsView #testPanel, #testsView #testReviewPanel { padding: 12px 14px; }
+  #testsView .hardware-check-item { grid-template-columns: minmax(0, 1fr); }
+  #testsView .check-result-options { justify-content: flex-start; }
+  #testsView #testsReportDetails { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  #testRail li { transition: background-color .15s ease-out, border-color .15s ease-out, color .15s ease-out; }
+}
+
+/* Teste de teclado: o mapa precisa de largura e altura, então a lista encolhe para ícones. */
+@media (min-width: 1001px) {
+  #testsView:has(#activeTestBody .windows-keyboard, #activeTestBody .keyboard-map) .tests-body { grid-template-columns: 62px minmax(0, 1fr); }
+  #testsView:has(#activeTestBody .windows-keyboard, #activeTestBody .keyboard-map) #testRail .rail-copy { display: none; }
+  #testsView:has(#activeTestBody .windows-keyboard, #activeTestBody .keyboard-map) #testRail button { justify-content: center; padding: 6px; }
+}
+#testsView:has(#activeTestBody .windows-keyboard, #activeTestBody .keyboard-map) .hardware-checklist > header { display: none; }
+#testsView:has(#activeTestBody .windows-keyboard, #activeTestBody .keyboard-map) .hardware-checklist { margin-top: 8px; padding-top: 4px; }
+#testsView .keyboard-map.windows-keyboard { --key: clamp(30px, min(3vw, 4.4vh), 52px); }
+#testsView #activeTestBody:has(> .keyboard-map) { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 16px; align-items: center; align-content: start; }
+#testsView #activeTestBody:has(> .keyboard-map) > .keyboard-progress, #testsView #activeTestBody:has(> .keyboard-map) > .keyboard-map { grid-column: 1 / -1; margin: 0; }
+#testsView #activeTestBody:has(> .keyboard-map) > .keyboard-recent { margin: 0; }
+#testsView #activeTestBody:has(> .keyboard-map) > .keyboard-capture-controls { flex-direction: column; align-items: stretch; gap: 4px; max-width: 280px; margin: 0; }
+#testsView #activeTestBody:has(> .keyboard-map) > .keyboard-capture-controls p { font-size: 12px; line-height: 1.35; }
+@media (max-height: 820px) { #testsView:has(#activeTestBody > .keyboard-map) #activeTestHelp { display: none; } }
+#testsView #testPanel > header { grid-row: 1; }
+#testsView #activeTestHelp { grid-row: 2; }
+#testsView #activeTestBody { grid-row: 3; }
+#testsView #testPanel > .hardware-checklist { grid-row: 4; }
+#testsView #activeTestBody:has(> .keyboard-map) { grid-auto-rows: max-content; }
+#testsView .keyboard-map.windows-keyboard { --key: clamp(30px, min(3vw, 4.1vh), 52px); }
+#testsView .keyboard-map.windows-keyboard { --key: clamp(30px, min(3vw, 3.9vh), 52px); }
+@media (max-height: 820px) {
+  #testsView #testPanel:has(#activeTestBody > .keyboard-map) { padding: 10px 20px 6px; }
+  #testsView #testPanel:has(#activeTestBody > .keyboard-map) .hardware-checklist { margin-top: 4px; padding-top: 0; }
+}
