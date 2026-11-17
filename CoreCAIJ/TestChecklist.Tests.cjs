@@ -28,7 +28,7 @@ const rendered = { innerHTML: '', textContent: '' };
 const uiState = { activeTest: 'audio', testChecklist: complete().items };
 const ui = vm.createContext({ state: uiState, qs: id => id === 'hardwareChecklistItems' ? rendered : id === 'usbPortTools' ? { classList: { toggle() {} } } : rendered,
   escapeHtml: value => String(value), window: { CAIJ_TEST_CHECKLIST: checklist } });
-vm.runInContext(appSource.slice(appSource.indexOf('function renderHardwareChecklist('), appSource.indexOf('function renderTestConfirmation(')), ui);
+vm.runInContext(appSource.slice(appSource.indexOf('const evidenceRequiredItems'), appSource.indexOf('function renderTestConfirmation(')), ui);
 ui.renderHardwareChecklist();
 assert.match(rendered.innerHTML, /Detecção registrada: Tom reproduzido/);
 assert.doesNotMatch(rendered.innerHTML, /data-evidence-manual=/, 'Com detecção automática, não mostrar alternativa manual');

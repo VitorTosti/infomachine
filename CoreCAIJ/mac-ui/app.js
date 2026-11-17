@@ -1120,6 +1120,25 @@ function deriveChecklistResults() {
   }
 }
 
+const evidenceRequiredItems = ["audio.speakers", "trackpad.movement", "trackpad.buttons", "charger.connectors"];
+
+function testBlockers(test) {
+  return state.testChecklist.filter((item) => item.testId === test).flatMap((item) => {
+    const reason = item.result === "pending" ? (evidenceRequiredItems.includes(item.id) && !item.evidence ? "evidence" : "pending")
+      : ["failed", "untested"].includes(item.result) && !String(item.notes || "").trim() ? "justification" : "";
+    return reason ? [{ id: item.id, label: item.label, reason }] : [];
+  });
+}
+
+function testRailState(test) {
+  const results = state.testChecklist.filter((item) => item.testId === test).map((item) => item.result);
+  if (results.every((result) => result === "pending")) return "pending";
+  if (testBlockers(test).length) return "incomplete";
+  if (results.includes("failed")) return "failed";
+  if (results.includes("untested")) return "untested";
+  return results.every((result) => result === "not_applicable") ? "not_applicable" : "passed";
+}
+
 function renderHardwareChecklist() {
   const test = state.activeTest;
   qs("hardwareChecklistItems").innerHTML = state.testChecklist.filter((item) => item.testId === test).map((item) => {
@@ -1129,7 +1148,7 @@ function renderHardwareChecklist() {
     const identity = `<span class="hardware-check-label">${escapeHtml(item.label)}</span>${removable}`;
     const resultButton = (result, text) => `<button type="button" class="check-result-button check-result-${result}" data-check-result="${item.id}" data-check-value="${result}" aria-pressed="${item.result === result}">${text || escapeHtml(window.CAIJ_TEST_CHECKLIST.resultLabels[result])}</button>`;
     const choices = `<fieldset class="check-result-options"><legend>Resultado: ${escapeHtml(item.label)}</legend><div class="check-result-main">${resultButton("passed", '<span aria-hidden="true">✓</span> Aprovado')}${resultButton("failed", '<span aria-hidden="true">×</span> Reprovado')}</div><div class="check-result-exceptions">${resultButton("not_applicable")}${resultButton("untested")}${resultButton("pending", "Limpar")}</div></fieldset>`;
-    const requiresEvidence = ["audio.speakers", "trackpad.movement", "trackpad.buttons", "charger.connectors"].includes(item.id);
+    const requiresEvidence = evidenceRequiredItems.includes(item.id);
     const evidenceView = requiresEvidence ? `<p class="hardware-check-evidence">${item.evidence ? `${item.evidence.source === "manual" ? "Verificação manual" : "Detecção registrada"}: ${escapeHtml(item.evidence.detail)}` : "Aguardando detecção automática."}</p>${item.evidence?.source === "auto" ? "" : `<button type="button" class="secondary hardware-check-manual" data-evidence-manual="${item.id}">${item.evidence?.source === "manual" ? "Alterar justificativa manual" : "Detecção falhou? Registrar verificação manual"}</button>`}` : "";
     const note = compact && !exception && !item.notes ? "" : `<label class="hardware-check-note" for="note-${item.id}">${exception ? "Justificativa obrigatória" : "Detalhe da verificação (opcional)"}<input id="note-${item.id}" data-check-note="${item.id}" maxlength="500" value="${escapeHtml(item.notes)}"${exception ? " required" : ""} placeholder="Descreva o comportamento observado ou o motivo da exceção"></label>`;
     return `<article class="hardware-check-item${compact ? " hardware-check-compact" : ""}" data-result="${item.result}"><div class="hardware-check-identity">${identity}${evidenceView}</div>${choices}${note}</article>`;
@@ -2333,7 +2352,7 @@ function wireControls() {
     const item = state.testChecklist.find((entry) => entry.id === id);
     const result = target.dataset.checkValue;
     if (!item || !window.CAIJ_TEST_CHECKLIST.results.includes(result) || item.result === result) return;
-    if (["audio.speakers", "trackpad.movement", "trackpad.buttons", "charger.connectors"].includes(id) && result === "passed" && !item.evidence) { qs("hardwareChecklistStatus").textContent = "Registre a detecção ou confirme manualmente com justificativa antes de aprovar."; return; }
+    if (evidenceRequiredItems.includes(id) && result === "passed" && !item.evidence) { qs("hardwareChecklistStatus").textContent = "Registre a detecção ou confirme manualmente com justificativa antes de aprovar."; return; }
     invalidateTestConfirmation();
     item.result = result;
     renderTests();
