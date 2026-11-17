@@ -12,6 +12,8 @@ $record=[pscustomobject]@{technician=('T' + [char]0x00E9 + 'cnico');serial='ABC'
 ($record.items | Where-Object id -eq 'trackpad.movement') | Add-Member -NotePropertyName evidence -NotePropertyValue @{source='auto';detail='20 movimentos detectados na area de teste';at='2026-11-16T12:00:00Z'}
 ($record.items | Where-Object id -eq 'trackpad.buttons') | Add-Member -NotePropertyName evidence -NotePropertyValue @{source='auto';detail='Cliques detectados: esquerdo 1, direito 1';at='2026-11-16T12:00:00Z'}
 ($record.items | Where-Object id -eq 'charger.connectors') | Add-Member -NotePropertyName evidence -NotePropertyValue @{source='auto';detail='Alimentacao mudou de bateria para tomada apos reconectar o carregador';at='2026-11-16T12:00:00Z'}
+($record.items | Where-Object id -eq 'network.ethernet') | Add-Member -NotePropertyName evidence -NotePropertyValue @{source='auto';detail='Interface ethernet conectada: Rede; IP 192.168.1.2';at='2026-11-16T12:00:00Z'}
+($record.items | Where-Object id -eq 'network.wifi') | Add-Member -NotePropertyName evidence -NotePropertyValue @{source='auto';detail='Interface wifi conectada: Wi-Fi; IP 192.168.1.3';at='2026-11-16T12:00:00Z'}
 $path=Join-Path ([IO.Path]::GetTempPath()) ('caij-record-regression-'+[guid]::NewGuid().ToString('N')+'.json')
 $legacyPath=$path+'.legacy.json'
 try {

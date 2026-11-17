@@ -313,6 +313,11 @@ function Save-LocalTestRecord {
             if ($item.evidence.source -notin @('auto','manual') -or [string]::IsNullOrWhiteSpace([string]$item.evidence.detail)) { throw 'Aprovacao do carregador exige deteccao ou justificativa manual.' }
             if ($item.evidence.source -eq 'auto' -and [string]$item.evidence.detail -notmatch 'bateria para tomada') { throw 'Reconexao do carregador nao comprovada.' }
         }
+        if ($item.id -in @('network.ethernet','network.wifi') -and $item.result -eq 'passed') {
+            if ($item.evidence.source -notin @('auto','manual') -or [string]::IsNullOrWhiteSpace([string]$item.evidence.detail)) { throw 'Aprovacao da rede exige deteccao ou justificativa manual.' }
+            $kind = ([string]$item.id -split '\.')[1]
+            if ($item.evidence.source -eq 'auto' -and [string]$item.evidence.detail -notlike "Interface $kind conectada:*") { throw 'Interface de rede nao comprovada.' }
+        }
         if ($Record.mode -eq 'APROVADO' -and $item.result -in @('failed','untested')) { throw 'Falha ou item nao testado impede aprovacao.' }
     }
     if ($usbPorts -gt 32 -or @($requiredIds | Where-Object { -not $ids.ContainsKey($_) }).Count) { throw 'Checklist incompleto ou portas USB invalidas.' }
@@ -677,6 +682,18 @@ try {
                     Add-Type -AssemblyName System.Windows.Forms
                     $power = [System.Windows.Forms.SystemInformation]::PowerStatus
                     Send-LocalJsonResponse -Client $client -StatusCode 200 -Body @{ ok=$true; acOnline=($power.PowerLineStatus -eq [System.Windows.Forms.PowerLineStatus]::Online); lineStatus=[string]$power.PowerLineStatus }
+                } catch { Send-LocalJsonResponse -Client $client -StatusCode 500 -Body @{ ok=$false; message=$_.Exception.Message } }
+            } elseif ($requestLine -match '^GET\s+/network-status(?:\?|\s)') {
+                try {
+                    $interfaces = @([System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() | ForEach-Object {
+                        $kind = if ($_.NetworkInterfaceType -eq [System.Net.NetworkInformation.NetworkInterfaceType]::Wireless80211) { 'wifi' }
+                            elseif ($_.NetworkInterfaceType -in @([System.Net.NetworkInformation.NetworkInterfaceType]::Ethernet,[System.Net.NetworkInformation.NetworkInterfaceType]::GigabitEthernet)) { 'ethernet' } else { '' }
+                        if (-not $kind -or ($_.Name + ' ' + $_.Description) -match '(?i)vEthernet|virtual|hyper-v|vmware|virtualbox|loopback|\bVPN\b|\bTAP\b|\bTUN\b') { return }
+                        $properties = $_.GetIPProperties()
+                        $address = @($properties.UnicastAddresses | Where-Object { $_.Address.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork -and -not $_.Address.ToString().StartsWith('169.254.') } | Select-Object -First 1)
+                        [pscustomobject]@{ kind=$kind; name=$_.Name; connected=($_.OperationalStatus -eq [System.Net.NetworkInformation.OperationalStatus]::Up -and $address.Count -gt 0 -and $properties.GatewayAddresses.Count -gt 0); ip=if ($address.Count) { $address[0].Address.ToString() } else { '' } }
+                    })
+                    Send-LocalJsonResponse -Client $client -StatusCode 200 -Body @{ ok=$true; interfaces=$interfaces }
                 } catch { Send-LocalJsonResponse -Client $client -StatusCode 500 -Body @{ ok=$false; message=$_.Exception.Message } }
             } elseif ($requestLine -match '^GET\s+/device-info(?:\?|\s)') {
                 if (Test-Path -LiteralPath $deviceOutputPath) {

@@ -1131,7 +1131,7 @@ function deriveChecklistResults() {
   }
 }
 
-const evidenceRequiredItems = ["audio.speakers", "trackpad.movement", "trackpad.buttons", "charger.connectors"];
+const evidenceRequiredItems = ["audio.speakers", "trackpad.movement", "trackpad.buttons", "charger.connectors", "network.ethernet", "network.wifi"];
 
 function testBlockers(test) {
   return state.testChecklist.filter((item) => item.testId === test).flatMap((item) => {
@@ -1947,7 +1947,7 @@ function openScreenTest() {
 }
 
 function openTrackpadTest() {
-  qs("activeTestBody").innerHTML = '<div class="trackpad-stats" aria-label="Leituras do mouse"><span><small>Movimento</small><strong id="trackMoves">0</strong></span><span><small>Clique esquerdo</small><strong id="trackLeft">0</strong></span><span><small>Clique do meio</small><strong id="trackMiddle">0</strong></span><span><small>Clique direito</small><strong id="trackRight">0</strong></span><span><small>Rolagem</small><strong id="trackScrolls">0</strong></span></div><div class="trackpad-zone" id="trackpadZone"><i id="trackPointer"></i><div class="trackpad-guide" aria-hidden="true"><span>ÁREA DE TESTE</span><strong>Explore toda a superfície</strong><small>Mova o ponteiro, clique e role dentro desta área.</small><div class="trackpad-gesture-guide"><span>1 · Clique esquerdo</span><span>2 · Clique do meio</span><span>3 · Clique direito</span><span>4 · Rolagem</span></div></div></div><p id="trackLastPointer" aria-live="polite">Último clique: aguardando. Clique em qualquer ponto da área deste teste.</p>';
+  qs("activeTestBody").innerHTML = '<div class="trackpad-stats" aria-label="Leituras do mouse"><span><small>Movimento</small><strong id="trackMoves">0</strong></span><span><small>Clique esquerdo</small><strong id="trackLeft">0</strong></span><span><small>Clique do meio (opcional)</small><strong id="trackMiddle">0</strong></span><span><small>Clique direito</small><strong id="trackRight">0</strong></span><span><small>Rolagem</small><strong id="trackScrolls">0</strong></span></div><div class="trackpad-zone" id="trackpadZone"><i id="trackPointer"></i><div class="trackpad-guide" aria-hidden="true"><span>ÁREA DE TESTE</span><strong>Explore toda a superfície</strong><small>Mova o ponteiro e teste os cliques esquerdo e direito.</small><div class="trackpad-gesture-guide"><span>1 · Clique esquerdo</span><span>2 · Clique direito</span><span>3 · Rolagem</span></div></div></div><p id="trackLastPointer" aria-live="polite">Último clique: aguardando. Clique em qualquer ponto da área deste teste.</p>';
   const zone = qs("trackpadZone");
   const pointer = qs("trackPointer");
   let moves = 0;
@@ -2030,6 +2030,30 @@ async function openTest(test) {
         if (item) { invalidateTestConfirmation(); item.evidence = { source: "auto", detail: "Alimentação mudou de bateria para tomada após reconectar o carregador", at: new Date().toISOString() }; renderHardwareChecklist(); renderTests(); }
         qs("powerStatus").textContent = "Conexão do carregador detectada. Confirme o funcionamento e a firmeza no checklist.";
       } catch (error) { qs("powerStatus").textContent = `${error.message} Você pode registrar a verificação manual com justificativa.`; }
+    });
+  }
+  if (test === "network") {
+    qs("activeTestBody").innerHTML = '<div class="connector-test-guide"><p>Conecte Ethernet e Wi-Fi separadamente. A leitura identifica a interface ativa e o IP; confirme também o acesso à rede no checklist.</p><button type="button" id="detectNetwork">Detectar conexões</button><p id="networkStatus" role="status">Aguardando leitura.</p></div>';
+    qs("detectNetwork").addEventListener("click", async () => {
+      const button = qs("detectNetwork"); button.disabled = true;
+      try {
+        const reading = await api("/api/network-status");
+        const lines = [];
+        for (const kind of ["ethernet", "wifi"]) {
+          const connected = (reading.interfaces || []).find((entry) => entry.kind === kind && entry.connected);
+          lines.push(`${kind === "wifi" ? "Wi-Fi" : "Ethernet"}: ${connected ? `${connected.name} · IP ${connected.ip}` : "sem conexão detectada"}`);
+          const item = state.testChecklist.find((entry) => entry.id === `network.${kind}`);
+          if (connected) {
+            if (item) { invalidateTestConfirmation(); item.evidence = { source: "auto", detail: `Interface ${kind} conectada: ${connected.name}; IP ${connected.ip}`, at: new Date().toISOString() }; }
+          } else if (item?.evidence?.source === "auto") {
+            invalidateTestConfirmation(); delete item.evidence;
+            if (item.result === "passed") item.result = "pending";
+          }
+        }
+        qs("networkStatus").textContent = `${lines.join(" | ")}. Confirme o acesso observado no checklist.`;
+        renderHardwareChecklist(); renderTests();
+      } catch (error) { qs("networkStatus").textContent = `${error.message} Se a conexão funciona, registre a verificação manual com justificativa.`; }
+      finally { button.disabled = false; }
     });
   }
   qs("testWorkspace").scrollIntoView({ behavior: "smooth", block: "nearest" });

@@ -277,6 +277,13 @@
   }
 
   async function portableApi(path, body) {
+    if (path === "/api/network-status") {
+      if (!isWindows || !runtime.localBridgeUrl) throw new Error("Detecção de rede indisponível neste modo. Use a confirmação manual justificada.");
+      const response = await fetchWithTimeout(`${runtime.localBridgeUrl}/network-status`, {}, 3000);
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.message || "Não foi possível ler as interfaces de rede.");
+      return data;
+    }
     if (path === "/api/power-status") {
       if (!isWindows || !runtime.localBridgeUrl) throw new Error("Leitura de alimentação indisponível neste modo. Use a confirmação manual justificada.");
       const response = await fetchWithTimeout(`${runtime.localBridgeUrl}/power-status`, {}, 3000);

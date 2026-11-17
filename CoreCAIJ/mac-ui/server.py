@@ -232,6 +232,12 @@ class AppState:
                         raise ValueError("Aprovacao do carregador exige deteccao ou justificativa manual.")
                     if evidence["source"] == "auto" and "bateria para tomada" not in evidence["detail"]:
                         raise ValueError("Reconexao do carregador nao comprovada.")
+                if item["id"] in ("network.ethernet", "network.wifi") and result == "passed":
+                    evidence = item.get("evidence") or {}
+                    if not isinstance(evidence, dict) or evidence.get("source") not in ("auto", "manual") or not str(evidence.get("detail") or "").strip():
+                        raise ValueError("Aprovacao da rede exige deteccao ou justificativa manual.")
+                    if evidence["source"] == "auto" and "Interface {} conectada:".format(item["id"].split(".")[1]) not in evidence["detail"]:
+                        raise ValueError("Interface de rede nao comprovada.")
                 if mode == "APROVADO" and result in ("failed", "untested"):
                     raise ValueError("Falha ou item nao testado impede aprovacao.")
             if usb_ports > 32 or not required_ids.issubset(ids):

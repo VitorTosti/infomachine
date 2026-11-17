@@ -5,6 +5,8 @@ next(item for item in items if item['id']=='audio.speakers')['evidence']=dict(so
 next(item for item in items if item['id']=='trackpad.movement')['evidence']=dict(source='auto',detail='20 movimentos detectados na area de teste',at='2026-11-16T12:00:00Z')
 next(item for item in items if item['id']=='trackpad.buttons')['evidence']=dict(source='auto',detail='Cliques detectados: esquerdo 1, direito 1',at='2026-11-16T12:00:00Z')
 next(item for item in items if item['id']=='charger.connectors')['evidence']=dict(source='auto',detail='Alimentacao mudou de bateria para tomada apos reconectar o carregador',at='2026-11-16T12:00:00Z')
+next(item for item in items if item['id']=='network.ethernet')['evidence']=dict(source='auto',detail='Interface ethernet conectada: Rede; IP 192.168.1.2',at='2026-11-16T12:00:00Z')
+next(item for item in items if item['id']=='network.wifi')['evidence']=dict(source='auto',detail='Interface wifi conectada: Wi-Fi; IP 192.168.1.3',at='2026-11-16T12:00:00Z')
 record=dict(technician='TÃ©cnico Ã',serial='ABC',items=items,mode='APROVADO',confirmedAt='2026-11-12T12:00:00.000Z',fingerprint='snapshot',notes='ObservaÃ§Ã£o')
 with tempfile.TemporaryDirectory() as d:
  app=m.AppState.__new__(m.AppState);app.lock=threading.RLock();app.test_records_path=lambda:pathlib.Path(d)/'registros.json'

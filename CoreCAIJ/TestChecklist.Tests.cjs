@@ -3,8 +3,9 @@ const checklist = require('./mac-ui/test-checklist.js');
 const clone = data => JSON.parse(JSON.stringify(data));
 const fs = require('node:fs');
 const vm = require('node:vm');
+const evidenceDetails = { 'audio.speakers': 'Tom reproduzido nos lados esquerdo e direito', 'trackpad.movement': '20 movimentos detectados na área de teste', 'trackpad.buttons': 'Cliques detectados: esquerdo 1, direito 1', 'charger.connectors': 'Alimentação mudou de bateria para tomada após reconectar o carregador', 'network.ethernet': 'Interface ethernet conectada: Rede cabeada; IP 192.168.1.2', 'network.wifi': 'Interface wifi conectada: Wi-Fi; IP 192.168.1.3' };
 const complete = () => ({ technician: 'Vitor', serial: 'QA-CHECK-001', mode: 'APROVADO', notes: '',
-  items: checklist.createChecklist({ usbPorts: ['USB esquerda', 'USB direita'] }).map(item => ({ ...item, result: 'passed', ...({ 'audio.speakers': 'Tom reproduzido nos lados esquerdo e direito', 'trackpad.movement': '20 movimentos detectados na área de teste', 'trackpad.buttons': 'Cliques detectados: esquerdo 1, direito 1', 'charger.connectors': 'Alimentação mudou de bateria para tomada após reconectar o carregador' }[item.id] ? { evidence: { source: 'auto', detail: { 'audio.speakers': 'Tom reproduzido nos lados esquerdo e direito', 'trackpad.movement': '20 movimentos detectados na área de teste', 'trackpad.buttons': 'Cliques detectados: esquerdo 1, direito 1', 'charger.connectors': 'Alimentação mudou de bateria para tomada após reconectar o carregador' }[item.id], at: '2026-11-16T12:00:00Z' } } : {}) })) });
+  items: checklist.createChecklist({ usbPorts: ['USB esquerda', 'USB direita'] }).map(item => ({ ...item, result: 'passed', ...(evidenceDetails[item.id] ? { evidence: { source: 'auto', detail: evidenceDetails[item.id], at: '2026-11-16T12:00:00Z' } } : {}) })) });
 const valid = data => checklist.validateConfirmation(data).ok;
 
 assert.equal(checklist.catalog.length, 9);
@@ -21,6 +22,12 @@ for (const id of ['trackpad.movement', 'trackpad.buttons']) {
 }
 const noChargerEvidence = complete(); delete noChargerEvidence.items.find(item => item.id === 'charger.connectors').evidence;
 assert.equal(valid(noChargerEvidence), false, 'Carregador aprovado exige evidência');
+for (const id of ['network.ethernet', 'network.wifi']) {
+  const missing = complete(); delete missing.items.find(item => item.id === id).evidence;
+  assert.equal(valid(missing), false, `${id} aprovado exige detecção`);
+  const manual = complete(); manual.items.find(item => item.id === id).evidence = { source: 'manual', detail: 'Conexão testada apesar da falha de leitura', at: '2026-11-16T12:00:00Z' };
+  assert.equal(valid(manual), true, `${id} aceita justificativa manual`);
+}
 const manualAudio = complete(); manualAudio.items.find(item => item.id === 'audio.speakers').evidence = { source: 'manual', detail: 'Saída testada pelo sistema operacional', at: '2026-11-16T12:00:00Z' };
 assert.equal(valid(manualAudio), true, 'Detecção falha permite justificativa manual');
 const appSource = fs.readFileSync(`${__dirname}/mac-ui/app.js`, 'utf8');

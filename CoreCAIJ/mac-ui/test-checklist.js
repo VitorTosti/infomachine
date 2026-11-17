@@ -83,6 +83,11 @@
            (item.evidence.source === "auto" && !item.evidence.detail.includes("bateria para tomada")))) {
         errors.push("Registre a reconexão do carregador ou justifique a confirmação manual.");
       }
+      if (["network.ethernet", "network.wifi"].includes(item.id) && item.result === "passed" &&
+          (!item.evidence || !["auto", "manual"].includes(item.evidence.source) || !String(item.evidence.detail || "").trim() ||
+           (item.evidence.source === "auto" && !item.evidence.detail.includes(`Interface ${item.id.split(".")[1]} conectada:`)))) {
+        errors.push(`Detecte a conexão ou justifique a verificação manual de ${item.label}.`);
+      }
     }
     if (usbPortCount > 32) errors.push("Informe no máximo 32 portas USB.");
     const available = new Set(items.filter(Boolean).map((item) => item.id));
