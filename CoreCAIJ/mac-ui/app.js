@@ -1179,6 +1179,15 @@ function renderTestRail() {
   qs("testRail").innerHTML = entries.join("");
 }
 
+function reviewSummaryHtml() {
+  return testSequence.map((test) => {
+    const railState = testRailState(test);
+    const [icon, text] = railStateLabels[railState];
+    const open = ["pending", "incomplete"].includes(railState);
+    return `<li data-state="${railState}"><button type="button" data-review-test="${test}"><span class="rail-icon" aria-hidden="true">${icon}</span><span class="review-copy"><strong>${escapeHtml(testLabels[test])}</strong><span>${open ? escapeHtml(blockersText(test)) : text}</span></span></button></li>`;
+  }).join("");
+}
+
 function renderHardwareChecklist() {
   const test = state.activeTest;
   const blocked = new Map(testBlockers(test).map((blocker) => [blocker.id, blocker.reason]));
@@ -1211,6 +1220,7 @@ function renderTestConfirmation() {
   else if (!validation.ok) qs("testConfirmationStatus").textContent = validation.errors[0];
   else qs("testConfirmationStatus").textContent = "Checklist preenchido. Revise os resultados, marque a declaração e digite a palavra indicada para confirmar.";
   qs("testConfirmationHistory").innerHTML = readTestHistory().slice(0, 20).map((record, index) => `<li><button type="button" class="secondary" data-copy-test-record="${index}">${escapeHtml(record.serial)} · ${escapeHtml(record.technician)} · ${escapeHtml(record.mode)} · ${escapeHtml(new Date(record.confirmedAt).toLocaleString("pt-BR"))} — copiar relatório</button></li>`).join("") || "<li>Nenhum relatório local confirmado.</li>";
+  if (state.activeTest === "review") renderActionBar();
 }
 
 async function loadTestRecords() {
@@ -1307,9 +1317,7 @@ function renderTests() {
   qs("testsProgress").style.width = `${completion}%`;
   qs("testsHeadSerial").textContent = qs("testEquipmentSerial").value ? `Serial ${qs("testEquipmentSerial").value}` : "";
   qs("testsReport").textContent = `${passed} ${passed === 1 ? "aprovado" : "aprovados"} · ${failed} ${failed === 1 ? "reprovado" : "reprovados"} · ${pending} ${pending === 1 ? "pendente" : "pendentes"}`;
-  qs("testsReportDetails").innerHTML = Object.entries(state.tests).map(([key, result]) =>
-    `<li data-result="${result}"><span>${escapeHtml(testLabels[key])}</span><strong>${escapeHtml(window.CAIJ_TEST_CHECKLIST.resultLabels[result])}</strong></li>`
-  ).join("");
+  qs("testsReportDetails").innerHTML = reviewSummaryHtml();
   syncCompletedTestsToRecord(pending);
   renderTestConfirmation();
   renderTestRail();
@@ -1320,7 +1328,8 @@ function renderTests() {
 function renderActionBar() {
   const review = state.activeTest === "review";
   for (const id of ["skipActiveTest", "failAndNextTest", "passAndNextTest"]) qs(id).classList.toggle("hidden", review);
-  qs("confirmHardwareTests").classList.toggle("hidden", !review);
+  qs("confirmHardwareTests").classList.toggle("hidden", !review || validTestSignature());
+  if (!review) qs("finishTests").classList.add("hidden");
   qs("testActionBar").classList.toggle("review", review);
   const status = qs("activeTestBlockers");
   if (review) { status.textContent = qs("testConfirmationStatus").textContent; status.dataset.state = "review"; return; }
@@ -1515,16 +1524,20 @@ function confirmCameraTestPermission() {
 async function openCameraTest() {
   qs("activeTestBody").innerHTML = '<div class="camera-permission-idle"><span aria-hidden="true">●</span><div><strong>Aguardando sua autorização</strong><small>A câmera ainda não foi ativada.</small></div></div>';
   const approved = await confirmCameraTestPermission();
+  if (state.activeTest !== "camera") return;
   if (!approved) {
-    qs("activeTestBody").innerHTML = '<div class="camera-permission-idle"><span aria-hidden="true">○</span><div><strong>Câmera não ativada</strong><small>Encerre este teste e escolha Abrir teste para autorizar a câmera.</small></div></div>';
+    qs("activeTestBody").innerHTML = '<div class="camera-permission-idle"><span aria-hidden="true">○</span><div><strong>Câmera não ativada</strong><small>Ative a câmera para conferir a imagem, ou marque Não testado no checklist.</small></div><button type="button" class="secondary" id="retryCameraPermission">Ativar câmera</button></div>';
+    qs("retryCameraPermission").addEventListener("click", openCameraTest);
     return;
   }
   qs("activeTestBody").innerHTML = '<div class="camera-stage"><video id="cameraPreview" autoplay muted playsinline></video><span>Imagem ao vivo</span></div>';
   try {
-    state.mediaStream = await requestUserMediaWithStartupRetry({ video: true, audio: false });
+    const stream = await requestUserMediaWithStartupRetry({ video: true, audio: false });
+    if (state.activeTest !== "camera" || !qs("cameraPreview")) { stream.getTracks().forEach((track) => track.stop()); return; }
+    state.mediaStream = stream;
     qs("cameraPreview").srcObject = state.mediaStream;
   } catch (err) {
-    testError(err.message || "Não foi possível ativar a câmera. Confira a permissão e tente novamente.");
+    if (state.activeTest === "camera") testError(err.message || "Não foi possível ativar a câmera. Confira a permissão e tente novamente.");
   }
 }
 
@@ -2352,6 +2365,10 @@ function wireControls() {
     if (!testSequence.includes(test)) return;
     closeScreenTest();
     openTest(test);
+  });
+  qs("testsReportDetails").addEventListener("click", (event) => {
+    const test = event.target.closest("button[data-review-test]")?.dataset.reviewTest;
+    if (testSequence.includes(test)) openTest(test);
   });
   qs("resetTests").addEventListener("click", () => {
     if (!window.confirm("Limpar todos os resultados deste equipamento?")) return;

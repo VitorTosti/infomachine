@@ -67,4 +67,13 @@ assert.equal(ui.blockersText('screen'), `Faltam 2 itens: ${label('screen.pixels'
 for (let n = 3; n <= 5; n++) uiState.testChecklist.push({ id: `usb.port-${n}`, testId: 'usb', label: `USB ${n}`, result: 'pending', notes: '' });
 assert.match(ui.blockersText('usb'), /^Faltam 6 itens: .+, USB 1, USB 2 e mais 3$/);
 
-console.log('PASS: estado da lista lateral, pendencias e barra de acao.');
+// Task 5: revisão
+uiState.testChecklist = items();
+uiState.testChecklist.filter(i => i.testId === 'usb').forEach(i => i.result = 'passed');
+const summary = ui.reviewSummaryHtml();
+assert.equal((summary.match(/data-review-test="/g) || []).length, 9);
+assert.match(summary, /<li data-state="passed"><button type="button" data-review-test="usb">/);
+assert.match(summary, /Faltam 2 itens/, 'teste pendente mostra o que falta');
+assert.doesNotMatch(summary.split('data-review-test="usb"')[1].split('</li>')[0], /Tudo preenchido/, 'teste concluído não repete mensagem');
+
+console.log('PASS: estado da lista lateral, pendencias, barra de acao e revisao.');

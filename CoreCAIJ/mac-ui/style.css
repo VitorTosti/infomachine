@@ -6024,3 +6024,36 @@ body:has(#testsView:not(.hidden)), .app-shell:has(#testsView:not(.hidden)) { min
 #testsView .tests-action-bar.attention { animation: tests-bar-attention .5s ease-out; }
 @keyframes tests-bar-attention { 0% { border-color: #e5cf8f; box-shadow: 0 0 0 3px rgba(229, 207, 143, .35); } 100% { border-color: #30465b; box-shadow: 0 0 0 3px rgba(229, 207, 143, 0); } }
 @media (prefers-reduced-motion: reduce) { #testsView .tests-action-bar.attention { animation: none; } #testsView .hardware-check-item, #testsView .tests-progress span { transition: none; } }
+
+/* Revisão: estado de cada teste e o que trava a confirmação. */
+#testsView #testsReportDetails li { padding: 0; border: 1px solid #30465b; border-radius: 9px; }
+#testsView #testsReportDetails li:first-child { padding: 0; border-left: 1px solid #30465b; }
+#testsView #testsReportDetails button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 52px; padding: 8px 12px; border: 0; border-radius: 8px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+#testsView #testsReportDetails button:focus-visible { outline: 3px solid #b7f8eb; outline-offset: 2px; }
+#testsView #testsReportDetails .rail-icon { display: grid; place-items: center; flex: 0 0 22px; width: 22px; height: 22px; border: 1.5px solid currentColor; border-radius: 50%; font-size: 13px; font-weight: 700; line-height: 1; }
+#testsView #testsReportDetails .review-copy { display: grid; gap: 1px; min-width: 0; }
+#testsView #testsReportDetails .review-copy strong { font-size: 14px; font-weight: 600; color: inherit; }
+#testsView #testsReportDetails .review-copy span { font-size: 12px; font-weight: 500; color: inherit; letter-spacing: 0; text-transform: none; overflow-wrap: anywhere; }
+#testsView #testsReportDetails li[data-state=passed] { color: #082c24; background: #7ce5c0; border-color: #7ce5c0; }
+#testsView #testsReportDetails li[data-state=failed] { color: #3b0d19; background: #ffacb9; border-color: #ffacb9; }
+#testsView #testsReportDetails li[data-state=untested] { color: #f0e6b8; background: #353425; border-color: #c6ab68; }
+#testsView #testsReportDetails li[data-state=not_applicable] { color: #b9c9d8; background: #1d3044; }
+#testsView #testsReportDetails li[data-state=incomplete], #testsView #testsReportDetails li[data-state=pending] { color: #f0e6b8; border-color: #c6ab68; border-style: dashed; }
+#testsView #testsReportDetails li[data-state=pending] .rail-icon { border-style: dashed; color: transparent; border-color: #c6ab68; }
+#testsView #testsReportDetails li { display: block; }
+#testsView #testsReportDetails li span { color: inherit; }
+#testsView #testsReportDetails button { height: 100%; }
+#testsView .tests-action-bar #confirmHardwareTests { border: 1px solid #7ce5c0; color: #082c24; background: #7ce5c0; }
+#testsView .tests-action-bar #confirmHardwareTests:disabled { border-color: #30465b; color: #8fa3b5; background: #17283a; cursor: not-allowed; }
+#testsView .test-confirmation h3 { margin: 0 0 4px; font-size: 16px; }
+#testsView .test-confirmation > p { margin: 0 0 12px; font-size: 13px; }
+
+/* O checklist fica sempre visível: só a área do teste rola dentro do painel. */
+#testsView #testWorkspace { display: grid; overflow: hidden; padding: 0; }
+#testsView #testPanel { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; min-height: 0; padding: 16px 20px 12px; }
+#testsView #testPanel:has(#activeTestBody:empty) { grid-template-rows: auto auto 0 minmax(0, 1fr); }
+#testsView #activeTestBody { min-height: 0; overflow: auto; }
+#testsView .hardware-checklist { max-height: 44vh; margin-top: 12px; padding-top: 10px; overflow-y: auto; }
+#testsView #testPanel:has(#activeTestBody:empty) .hardware-checklist { max-height: none; margin-top: 0; }
+#testsView #testReviewPanel { min-height: 0; padding: 16px 20px; overflow-y: auto; }
+#testsView .tests-action-bar #finishTests { border: 1px solid #7ce5c0; color: #082c24; background: #7ce5c0; }
