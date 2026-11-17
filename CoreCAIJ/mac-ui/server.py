@@ -209,6 +209,12 @@ class AppState:
                     raise ValueError("Item pendente ou invalido.")
                 if result in ("failed", "untested") and not str(item.get("notes") or "").strip():
                     raise ValueError("Justifique os itens com ressalvas.")
+                if item["id"] == "audio.speakers" and result == "passed":
+                    evidence = item.get("evidence") or {}
+                    if not isinstance(evidence, dict) or evidence.get("source") not in ("auto", "manual") or not str(evidence.get("detail") or "").strip():
+                        raise ValueError("Aprovacao do som exige evidencia de reproducao ou justificativa manual.")
+                    if evidence["source"] == "auto" and "esquerdo e direito" not in evidence["detail"]:
+                        raise ValueError("Teste automatico de som exige os dois lados.")
                 if mode == "APROVADO" and result in ("failed", "untested"):
                     raise ValueError("Falha ou item nao testado impede aprovacao.")
             if usb_ports > 32 or not required_ids.issubset(ids):

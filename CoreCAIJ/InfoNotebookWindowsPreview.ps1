@@ -300,6 +300,10 @@ function Save-LocalTestRecord {
         }
         if ($item.result -notin @('passed','failed','untested','not_applicable')) { throw 'Item pendente ou invalido.' }
         if ($item.result -in @('failed','untested') -and [string]::IsNullOrWhiteSpace([string]$item.notes)) { throw 'Justifique os itens com ressalvas.' }
+        if ($item.id -eq 'audio.speakers' -and $item.result -eq 'passed') {
+            if ($item.evidence.source -notin @('auto','manual') -or [string]::IsNullOrWhiteSpace([string]$item.evidence.detail)) { throw 'Aprovacao do som exige evidencia de reproducao ou justificativa manual.' }
+            if ($item.evidence.source -eq 'auto' -and $item.evidence.detail -notmatch 'esquerdo e direito') { throw 'Teste automatico de som exige os dois lados.' }
+        }
         if ($Record.mode -eq 'APROVADO' -and $item.result -in @('failed','untested')) { throw 'Falha ou item nao testado impede aprovacao.' }
     }
     if ($usbPorts -gt 32 -or @($requiredIds | Where-Object { -not $ids.ContainsKey($_) }).Count) { throw 'Checklist incompleto ou portas USB invalidas.' }

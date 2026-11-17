@@ -67,6 +67,12 @@
       }
       if (!results.includes(item.result)) errors.push(`Resultado inválido: ${item.label || item.id}.`);
       if (["failed", "untested"].includes(item.result) && !String(item.notes || "").trim()) errors.push(`Justifique o resultado de ${item.label || item.id}.`);
+      if (item.id === "audio.speakers" && item.result === "passed" &&
+          (!item.evidence || !["auto", "manual"].includes(item.evidence.source) ||
+           !String(item.evidence.detail || "").trim() ||
+           (item.evidence.source === "auto" && !item.evidence.detail.includes("esquerdo e direito")))) {
+        errors.push("Reproduza o tom nos dois lados ou justifique a confirmação manual do som.");
+      }
     }
     if (usbPortCount > 32) errors.push("Informe no máximo 32 portas USB.");
     const available = new Set(items.filter(Boolean).map((item) => item.id));
@@ -106,8 +112,10 @@
       lines.push("", test.label);
       if (!items.length) lines.push(test.id === "usb" ? "- Nenhuma porta USB configurada." : "- Itens não informados.");
       for (const item of items) {
-        lines.push(`- ${item.label || item.id}: ${resultLabels[item.result] || "Resultado inválido"}`);
+        const resultText = item.result === "passed" && item.evidence?.source === "manual" ? "Aprovado – manual" : resultLabels[item.result] || "Resultado inválido";
+        lines.push(`- ${item.label || item.id}: [${resultText}]`);
         if (String(item.notes || "").trim()) lines.push(`  Observação: ${String(item.notes).trim()}`);
+        if (item.evidence && String(item.evidence.detail || "").trim()) lines.push(`  Evidência${item.evidence.source === "manual" ? " manual" : ""}: ${String(item.evidence.detail).trim()}`);
       }
     }
     if (String(data.notes || "").trim()) lines.push("", `Observações gerais: ${String(data.notes).trim()}`);

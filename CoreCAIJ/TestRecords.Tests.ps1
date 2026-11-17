@@ -8,9 +8,15 @@ foreach($name in @('Get-LocalTestRecordsPath','Read-LocalTestRecords','Save-Loca
 }
 $ids='camera.image camera.capture keyboard.keys audio.speakers screen.pixels screen.artifacts trackpad.movement trackpad.buttons usb.inventory charger.connectors charger.firmness network.ethernet network.wifi hdmi.detection hdmi.image' -split ' '
 $record=[pscustomobject]@{technician=('T' + [char]0x00E9 + 'cnico');serial='ABC';items=@($ids | ForEach-Object {[pscustomobject]@{id=$_;testId=($_ -split '\.')[0];label=$_;result='passed';notes=''}});mode='APROVADO';confirmedAt='2026-11-12T12:00:00.000Z';fingerprint='snapshot';notes=('Observa' + [char]0x00E7 + [char]0x00E3 + 'o')}
+($record.items | Where-Object id -eq 'audio.speakers') | Add-Member -NotePropertyName evidence -NotePropertyValue @{source='auto';detail='Tom reproduzido nos lados esquerdo e direito';at='2026-11-16T12:00:00Z'}
 $path=Join-Path ([IO.Path]::GetTempPath()) ('caij-record-regression-'+[guid]::NewGuid().ToString('N')+'.json')
 $legacyPath=$path+'.legacy.json'
 try {
+    $semEvidencia=ConvertFrom-Json ($record | ConvertTo-Json -Depth 20)
+    ($semEvidencia.items | Where-Object id -eq 'audio.speakers').PSObject.Properties.Remove('evidence')
+    $rejected=$false
+    try{Save-LocalTestRecord -Record $semEvidencia -Path $path | Out-Null}catch{$rejected=$true}
+    if(-not $rejected){throw 'Som sem evidencia aceito'}
     Save-LocalTestRecord -Record $record -Path $path | Out-Null
     Save-LocalTestRecord -Record $record -Path $path | Out-Null
     $rows=@(Read-LocalTestRecords -Path $path)

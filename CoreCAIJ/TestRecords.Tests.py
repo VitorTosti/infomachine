@@ -1,10 +1,15 @@
 import importlib.util,tempfile,pathlib,threading,json,subprocess
 spec=importlib.util.spec_from_file_location('caijserver','CoreCAIJ/mac-ui/server.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
 items=json.loads(subprocess.check_output(['node','-e',"const c=require('./CoreCAIJ/mac-ui/test-checklist.js');console.log(JSON.stringify(c.createChecklist().map(i=>({...i,result:'passed'}))))"],text=True,encoding='utf-8'))
+next(item for item in items if item['id']=='audio.speakers')['evidence']=dict(source='auto',detail='Tom reproduzido nos lados esquerdo e direito',at='2026-11-16T12:00:00Z')
 record=dict(technician='TÃ©cnico Ã',serial='ABC',items=items,mode='APROVADO',confirmedAt='2026-11-12T12:00:00.000Z',fingerprint='snapshot',notes='ObservaÃ§Ã£o')
 with tempfile.TemporaryDirectory() as d:
  app=m.AppState.__new__(m.AppState);app.lock=threading.RLock();app.test_records_path=lambda:pathlib.Path(d)/'registros.json'
  assert app.test_records()['records']==[]
+ no_audio=json.loads(json.dumps(record));next(item for item in no_audio['items'] if item['id']=='audio.speakers').pop('evidence')
+ try:app.test_records(no_audio)
+ except ValueError:pass
+ else:raise AssertionError('Som sem evidencia aceito')
  assert app.test_records(record)['record']['technician']=='TÃ©cnico Ã'
  fresh=m.AppState.__new__(m.AppState);fresh.lock=threading.RLock();fresh.test_records_path=app.test_records_path
  assert len(fresh.test_records()['records'])==1

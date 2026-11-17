@@ -1125,7 +1125,8 @@ function renderHardwareChecklist() {
     const identity = item.id.startsWith("usb.port-") ? `<label>Identificação da porta<input data-check-label="${item.id}" maxlength="80" value="${escapeHtml(item.label)}" aria-label="Nome da porta ${escapeHtml(item.label)}"></label>` : `<span class="hardware-check-label">${escapeHtml(item.label)}</span>`;
     const resultButton = (result, text) => `<button type="button" class="check-result-button check-result-${result}" data-check-result="${item.id}" data-check-value="${result}" aria-pressed="${item.result === result}">${text || escapeHtml(window.CAIJ_TEST_CHECKLIST.resultLabels[result])}</button>`;
     const choices = `<fieldset class="check-result-options"><legend>Resultado: ${escapeHtml(item.label)}</legend><div class="check-result-main">${resultButton("passed", '<span aria-hidden="true">✓</span> Aprovado')}${resultButton("failed", '<span aria-hidden="true">×</span> Reprovado')}</div><div class="check-result-exceptions">${resultButton("not_applicable")}${resultButton("untested")}${resultButton("pending", "Limpar")}</div></fieldset>`;
-    return `<article class="hardware-check-item" data-result="${item.result}">${identity}${choices}<label class="hardware-check-note" for="note-${item.id}">${exception ? "Justificativa obrigatória" : "Detalhe da verificação (opcional)"}<input id="note-${item.id}" data-check-note="${item.id}" maxlength="500" value="${escapeHtml(item.notes)}"${exception ? " required" : ""} placeholder="Descreva o comportamento observado ou o motivo da exceção"></label></article>`;
+    const audioEvidence = item.id === "audio.speakers" ? `<p>Reprodução: ${escapeHtml(item.evidence?.detail || "aguardando os dois lados")}</p><button type="button" data-audio-manual="true">Confirmar reprodução manualmente</button>` : "";
+    return `<article class="hardware-check-item" data-result="${item.result}">${identity}${audioEvidence}${choices}<label class="hardware-check-note" for="note-${item.id}">${exception ? "Justificativa obrigatória" : "Detalhe da verificação (opcional)"}<input id="note-${item.id}" data-check-note="${item.id}" maxlength="500" value="${escapeHtml(item.notes)}"${exception ? " required" : ""} placeholder="Descreva o comportamento observado ou o motivo da exceção"></label></article>`;
   }).join("");
   qs("usbPortTools").classList.toggle("hidden", test !== "usb");
   qs("hardwareChecklistStatus").textContent = ["usb", "charger", "network", "hdmi"].includes(test)
@@ -1731,7 +1732,7 @@ function refreshKeyboardLayoutForDevice() {
   if (isE14Keyboard !== state.keyboardLayoutE14) openKeyboardTest();
 }
 
-async function playTestTone(volume = 50) {
+async function playTestTone(volume = 50, pan = 0) {
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   if (!AudioContextClass) throw new Error("Áudio não suportado neste navegador.");
   const context = new AudioContextClass();
@@ -1746,7 +1747,9 @@ async function playTestTone(volume = 50) {
   gain.gain.linearRampToValueAtTime(peak, context.currentTime + 0.05);
   gain.gain.setValueAtTime(peak, context.currentTime + 0.95);
   gain.gain.linearRampToValueAtTime(0, context.currentTime + 1.25);
-  oscillator.connect(gain).connect(context.destination);
+  const panner = context.createStereoPanner();
+  panner.pan.value = pan;
+  oscillator.connect(gain).connect(panner).connect(context.destination);
   await context.resume();
   oscillator.start();
   oscillator.stop(context.currentTime + 1.3);
@@ -1781,11 +1784,13 @@ async function startMicrophoneMeter() {
 }
 
 function openAudioTest() {
+  const speaker = state.testChecklist.find((item) => item.id === "audio.speakers");
+  const played = new Set(speaker?.evidence?.source === "auto" ? ["esquerdo", "direito"] : []);
   qs("activeTestBody").innerHTML = `<div class="audio-stage">
     <section class="audio-card" aria-label="Teste dos alto-falantes">
       <div class="audio-card-head"><div><span>01 · SAÍDA DE SOM</span><h4>Ouça o tom de teste</h4><p>Ajuste o volume deste teste e confirme os alto-falantes.</p></div><div class="audio-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div></div>
       <div class="audio-volume-control"><button type="button" id="volumeDown" aria-label="Diminuir volume do teste">−</button><input id="testVolume" type="range" min="0" max="100" step="10" value="50" aria-label="Volume do tom de teste"><button type="button" id="volumeUp" aria-label="Aumentar volume do teste">+</button><output id="testVolumeValue" for="testVolume">50%</output></div>
-      <button type="button" class="audio-play" id="playTone"><span aria-hidden="true">▶</span><span>Reproduzir tom</span></button>
+      <button type="button" class="audio-play" id="playToneLeft">Reproduzir lado esquerdo</button><button type="button" class="audio-play" id="playToneRight">Reproduzir lado direito</button><p id="toneStatus" aria-live="polite">Reproduza o tom nos dois lados e confirme o que ouviu no checklist.</p>
     </section>
     <section class="audio-card audio-mic-card" aria-label="Teste do microfone"><div class="audio-card-head"><div><span>02 · ENTRADA DE VOZ</span><h4>Confira o microfone</h4><p>Fale normalmente e observe o nível abaixo.</p></div><button type="button" id="startMic">Ativar microfone</button></div><div class="mic-meter" role="meter" aria-label="Nível do microfone"><span id="micMeterFill"></span></div><p id="micStatus" aria-live="polite">O medidor será ativado com sua permissão.</p></section>
   </div>`;
@@ -1798,14 +1803,26 @@ function openAudioTest() {
   qs("volumeUp").addEventListener("click", () => { volume.value = Math.min(100, Number(volume.value) + 10); updateVolume(); });
   volume.addEventListener("input", updateVolume);
   updateVolume();
-  qs("playTone").addEventListener("click", async () => {
-    const button = qs("playTone");
+  const playSide = async (side, pan) => {
+    const button = qs(pan < 0 ? "playToneLeft" : "playToneRight");
     button.disabled = true;
     button.closest(".audio-card").classList.add("playing");
-    try { await playTestTone(Number(volume.value)); }
+    try {
+      if (Number(volume.value) <= 0) throw new Error("Aumente o volume do teste antes de reproduzir o tom.");
+      await playTestTone(Number(volume.value), pan);
+      played.add(side);
+      qs("toneStatus").textContent = played.size === 2 ? "Tom reproduzido nos lados esquerdo e direito. Confirme o que ouviu no checklist." : `Tom reproduzido no lado ${side}. Teste o outro lado.`;
+      if (played.size === 2 && speaker) {
+        speaker.evidence = { source: "auto", detail: "Tom reproduzido nos lados esquerdo e direito", at: new Date().toISOString() };
+        invalidateTestConfirmation();
+        renderHardwareChecklist();
+      }
+    }
     catch (err) { testError(err.message || "Não foi possível reproduzir o som."); }
     finally { button.disabled = false; button.closest(".audio-card")?.classList.remove("playing"); }
-  });
+  };
+  qs("playToneLeft").addEventListener("click", () => playSide("esquerdo", -1));
+  qs("playToneRight").addEventListener("click", () => playSide("direito", 1));
   qs("startMic").addEventListener("click", startMicrophoneMeter);
 }
 
@@ -2225,14 +2242,14 @@ function wireControls() {
     if (action === "pass" || action === "fail") return openTest(test);
     invalidateTestConfirmation();
     if (test === "keyboard") { state.keyboardPressed = null; if (state.activeTest === "keyboard") openKeyboardTest(); }
-    state.testChecklist.filter((item) => item.testId === test).forEach((item) => { item.result = "pending"; item.notes = ""; });
+    state.testChecklist.filter((item) => item.testId === test).forEach((item) => { item.result = "pending"; item.notes = ""; delete item.evidence; });
     if (state.activeTest === test) renderHardwareChecklist();
     renderTests();
   });
   qs("resetTests").addEventListener("click", () => {
     state.keyboardPressed = null;
     invalidateTestConfirmation();
-    state.testChecklist.forEach((item) => { item.result = "pending"; item.notes = ""; });
+    state.testChecklist.forEach((item) => { item.result = "pending"; item.notes = ""; delete item.evidence; });
     qs("testGeneralNotes").value = "";
     Object.keys(state.tests).forEach((key) => state.tests[key] = "pending");
     stopActiveTest();
@@ -2250,12 +2267,20 @@ function wireControls() {
     setStatus("Relatório confirmado e disponível para o cadastro do rastreador.", "ok");
   });
   qs("hardwareChecklistItems").addEventListener("click", (event) => {
+    if (event.target.closest("[data-audio-manual]")) {
+      const reason = window.prompt("Por que a reprodução automática não pôde ser registrada? Descreva como verificou o som.")?.trim();
+      if (!reason) { qs("hardwareChecklistStatus").textContent = "A confirmação manual do som exige justificativa."; return; }
+      const speaker = state.testChecklist.find((item) => item.id === "audio.speakers");
+      if (speaker) { invalidateTestConfirmation(); speaker.evidence = { source: "manual", detail: reason, at: new Date().toISOString() }; renderHardwareChecklist(); renderTests(); }
+      return;
+    }
     const target = event.target.closest("button[data-check-result]");
     if (!target) return;
     const id = target.dataset.checkResult;
     const item = state.testChecklist.find((entry) => entry.id === id);
     const result = target.dataset.checkValue;
     if (!item || !window.CAIJ_TEST_CHECKLIST.results.includes(result) || item.result === result) return;
+    if (id === "audio.speakers" && result === "passed" && !item.evidence) { qs("hardwareChecklistStatus").textContent = "Reproduza o tom nos dois lados ou confirme manualmente com justificativa antes de aprovar."; return; }
     invalidateTestConfirmation();
     item.result = result;
     renderTests();
