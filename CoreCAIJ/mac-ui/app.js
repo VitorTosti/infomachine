@@ -2007,7 +2007,11 @@ async function openTest(test) {
   if (test === "camera") await openCameraTest();
   if (test === "keyboard") openKeyboardTest();
   if (test === "audio") openAudioTest();
-  if (test === "screen") openScreenTest();
+  if (test === "screen") {
+    qs("activeTestBody").innerHTML = '<button type="button" class="secondary" id="reopenScreenTest">Reabrir teste de tela (branco/preto)</button>';
+    qs("reopenScreenTest").addEventListener("click", openScreenTest);
+    openScreenTest();
+  }
   if (test === "trackpad") openTrackpadTest();
   if (["usb", "charger", "network", "hdmi"].includes(test)) qs("activeTestHelp").textContent = { usb: "Use um dispositivo USB conhecido em cada porta. Confira reconhecimento e uso; diferencie USB-A, USB-C e posição. Use +1 USB ou +1 USB-C para incluir as demais portas.", charger: "Teste cada conector de carregamento disponível no equipamento. Confira se todos funcionam e se os encaixes estão firmes, sem folga.", network: "Teste Ethernet e Wi-Fi separadamente. Anote conexão, acesso à rede local e à internet. A falta de internet deve ser diferenciada de defeito no adaptador.", hdmi: "Conecte um cabo HDMI e confira se a saída funciona e mantém a imagem estável. Anote eventual falha ou adaptador utilizado." }[test];
   if (test === "charger") {
@@ -2468,8 +2472,6 @@ function wireControls() {
     if (button) setScreenTestColor(button.dataset.color);
   });
   qs("closeScreenTest").addEventListener("click", closeScreenTest);
-  qs("failScreenAndNext").addEventListener("click", () => completeActiveTest("failed"));
-  qs("passScreenAndNext").addEventListener("click", () => completeActiveTest("passed"));
 
   qs("editForm").addEventListener("submit", async (event) => {
     event.preventDefault();

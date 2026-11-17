@@ -5772,17 +5772,9 @@ button, input, select, textarea { caret-color: #89e4d2; }
 }
 
 .screen-test-controls { width: max-content; max-width: calc(100vw - 32px); flex-wrap: wrap; justify-content: center; }
-.screen-test-controls .screen-test-results { gap: 8px; padding-left: 10px; border-left: 1px solid #62717b; }
 .screen-test-controls button { min-height: 40px; font-size: 12px; font-weight: 600; }
 .screen-test-controls #closeScreenTest { background: #3e4a55; }
-.screen-test-controls #failScreenAndNext { color: #ffc4cd; border-color: #a06270; background: #47313a; }
-.screen-test-controls #passScreenAndNext { color: #09251f; border-color: #84dfd0; background: #84dfd0; }
-.screen-test-controls #passScreenAndNext:hover { background: #a5f0e3; }
-.screen-test-controls #failScreenAndNext:hover { background: #60404c; }
 .screen-test-controls button:focus-visible { outline: 2px solid #fff; outline-offset: 3px; }
-@media (max-width: 1120px) {
-  .screen-test-controls .screen-test-results { justify-content: center; border-left: 0; padding-left: 0; }
-}
 
 .tests-page .trackpad-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .test-sequence li { display: block; padding: 0; }
