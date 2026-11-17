@@ -309,6 +309,10 @@ function Save-LocalTestRecord {
             if ($item.evidence.source -eq 'auto' -and $item.id -eq 'trackpad.movement' -and ([string]$item.evidence.detail -notmatch '^(\d+) movimentos detectados' -or [int]$Matches[1] -lt 20)) { throw 'Movimento insuficiente.' }
             if ($item.evidence.source -eq 'auto' -and $item.id -eq 'trackpad.buttons' -and [string]$item.evidence.detail -notmatch 'esquerdo [1-9]\d*, direito [1-9]\d*') { throw 'Cliques esquerdo e direito obrigatorios.' }
         }
+        if ($item.id -eq 'charger.connectors' -and $item.result -eq 'passed') {
+            if ($item.evidence.source -notin @('auto','manual') -or [string]::IsNullOrWhiteSpace([string]$item.evidence.detail)) { throw 'Aprovacao do carregador exige deteccao ou justificativa manual.' }
+            if ($item.evidence.source -eq 'auto' -and [string]$item.evidence.detail -notmatch 'bateria para tomada') { throw 'Reconexao do carregador nao comprovada.' }
+        }
         if ($Record.mode -eq 'APROVADO' -and $item.result -in @('failed','untested')) { throw 'Falha ou item nao testado impede aprovacao.' }
     }
     if ($usbPorts -gt 32 -or @($requiredIds | Where-Object { -not $ids.ContainsKey($_) }).Count) { throw 'Checklist incompleto ou portas USB invalidas.' }
@@ -668,6 +672,12 @@ try {
             } elseif ($requestLine -match '^POST\s+/3utools(?:\?|\s)') {
                 try { Send-LocalJsonResponse -Client $client -StatusCode 200 -Body @{ ok=$true; device=(Get-Windows3uToolsInfo) } }
                 catch { Send-LocalJsonResponse -Client $client -StatusCode 500 -Body @{ ok=$false; message=$_.Exception.Message } }
+            } elseif ($requestLine -match '^GET\s+/power-status(?:\?|\s)') {
+                try {
+                    Add-Type -AssemblyName System.Windows.Forms
+                    $power = [System.Windows.Forms.SystemInformation]::PowerStatus
+                    Send-LocalJsonResponse -Client $client -StatusCode 200 -Body @{ ok=$true; acOnline=($power.PowerLineStatus -eq [System.Windows.Forms.PowerLineStatus]::Online); lineStatus=[string]$power.PowerLineStatus }
+                } catch { Send-LocalJsonResponse -Client $client -StatusCode 500 -Body @{ ok=$false; message=$_.Exception.Message } }
             } elseif ($requestLine -match '^GET\s+/device-info(?:\?|\s)') {
                 if (Test-Path -LiteralPath $deviceOutputPath) {
                     $deviceResult = Get-Content -LiteralPath $deviceOutputPath -Raw -Encoding UTF8 | ConvertFrom-Json

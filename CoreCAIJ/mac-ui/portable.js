@@ -277,6 +277,13 @@
   }
 
   async function portableApi(path, body) {
+    if (path === "/api/power-status") {
+      if (!isWindows || !runtime.localBridgeUrl) throw new Error("Leitura de alimentação indisponível neste modo. Use a confirmação manual justificada.");
+      const response = await fetchWithTimeout(`${runtime.localBridgeUrl}/power-status`, {}, 3000);
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.message || "Não foi possível ler a alimentação.");
+      return data;
+    }
     if (path === "/api/test-records") {
       if (!runtime.localBridgeUrl) throw new Error("O histórico de testes não pode ser salvo neste modo. Abra o aplicativo local do InfoNotebook para confirmar o relatório.");
       const response = await fetchWithTimeout(`${runtime.localBridgeUrl}/api/test-records`, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, 10000);

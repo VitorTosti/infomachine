@@ -1125,7 +1125,7 @@ function renderHardwareChecklist() {
     const identity = item.id.startsWith("usb.port-") ? `<label>Identificação da porta<input data-check-label="${item.id}" maxlength="80" value="${escapeHtml(item.label)}" aria-label="Nome da porta ${escapeHtml(item.label)}"></label>` : `<span class="hardware-check-label">${escapeHtml(item.label)}</span>`;
     const resultButton = (result, text) => `<button type="button" class="check-result-button check-result-${result}" data-check-result="${item.id}" data-check-value="${result}" aria-pressed="${item.result === result}">${text || escapeHtml(window.CAIJ_TEST_CHECKLIST.resultLabels[result])}</button>`;
     const choices = `<fieldset class="check-result-options"><legend>Resultado: ${escapeHtml(item.label)}</legend><div class="check-result-main">${resultButton("passed", '<span aria-hidden="true">✓</span> Aprovado')}${resultButton("failed", '<span aria-hidden="true">×</span> Reprovado')}</div><div class="check-result-exceptions">${resultButton("not_applicable")}${resultButton("untested")}${resultButton("pending", "Limpar")}</div></fieldset>`;
-    const requiresEvidence = ["audio.speakers", "trackpad.movement", "trackpad.buttons"].includes(item.id);
+    const requiresEvidence = ["audio.speakers", "trackpad.movement", "trackpad.buttons", "charger.connectors"].includes(item.id);
     const evidenceView = requiresEvidence ? `<p class="hardware-check-evidence">${item.evidence ? `${item.evidence.source === "manual" ? "Verificação manual" : "Detecção registrada"}: ${escapeHtml(item.evidence.detail)}` : "Aguardando detecção automática."}</p>${item.evidence?.source === "auto" ? "" : `<button type="button" class="secondary hardware-check-manual" data-evidence-manual="${item.id}">${item.evidence?.source === "manual" ? "Alterar justificativa manual" : "Detecção falhou? Registrar verificação manual"}</button>`}` : "";
     return `<article class="hardware-check-item" data-result="${item.result}"><div class="hardware-check-identity">${identity}${evidenceView}</div>${choices}<label class="hardware-check-note" for="note-${item.id}">${exception ? "Justificativa obrigatória" : "Detalhe da verificação (opcional)"}<input id="note-${item.id}" data-check-note="${item.id}" maxlength="500" value="${escapeHtml(item.notes)}"${exception ? " required" : ""} placeholder="Descreva o comportamento observado ou o motivo da exceção"></label></article>`;
   }).join("");
@@ -1901,6 +1901,24 @@ async function openTest(test) {
   if (test === "screen") openScreenTest();
   if (test === "trackpad") openTrackpadTest();
   if (["usb", "charger", "network", "hdmi"].includes(test)) qs("activeTestBody").innerHTML = `<div class="connector-test-guide"><strong>${escapeHtml(testLabels[test])}</strong><p>${escapeHtml({ usb: "Use um dispositivo USB conhecido em cada porta. Confira reconhecimento e uso; diferencie USB-A, USB-C e posição. Adicione todas as portas da máquina abaixo.", charger: "Teste cada conector de carregamento disponível no equipamento. Confira se todos funcionam e se os encaixes estão firmes, sem folga.", network: "Teste Ethernet e Wi-Fi separadamente. Anote conexão, acesso à rede local e à internet. A falta de internet deve ser diferenciada de defeito no adaptador.", hdmi: "Conecte um cabo HDMI e confira se a saída funciona e mantém a imagem estável. Anote eventual falha ou adaptador utilizado." }[test])}</p></div>`;
+  if (test === "charger") {
+    let disconnected = false;
+    qs("activeTestBody").insertAdjacentHTML("beforeend", '<div class="connector-test-guide"><p>Desconecte o carregador e registre a leitura. Depois conecte-o e registre novamente.</p><button type="button" id="powerDisconnected">1. Ler desconectado</button> <button type="button" id="powerConnected">2. Ler conectado</button><p id="powerStatus" role="status">Aguardando a primeira leitura.</p></div>');
+    qs("powerDisconnected").addEventListener("click", async () => {
+      try { const reading = await api("/api/power-status"); disconnected = reading.lineStatus === "Offline"; qs("powerStatus").textContent = disconnected ? "Alimentação por bateria detectada. Reconecte o carregador." : "O Windows não detectou alimentação por bateria. Confira se o carregador foi desconectado."; }
+      catch (error) { qs("powerStatus").textContent = `${error.message} Você pode registrar a verificação manual com justificativa.`; }
+    });
+    qs("powerConnected").addEventListener("click", async () => {
+      if (!disconnected) { qs("powerStatus").textContent = "Registre primeiro a alimentação por bateria."; return; }
+      try {
+        const reading = await api("/api/power-status");
+        if (reading.lineStatus !== "Online") { qs("powerStatus").textContent = "O Windows ainda não detecta alimentação pela tomada."; return; }
+        const item = state.testChecklist.find((entry) => entry.id === "charger.connectors");
+        if (item) { invalidateTestConfirmation(); item.evidence = { source: "auto", detail: "Alimentação mudou de bateria para tomada após reconectar o carregador", at: new Date().toISOString() }; renderHardwareChecklist(); renderTests(); }
+        qs("powerStatus").textContent = "Conexão do carregador detectada. Confirme o funcionamento e a firmeza no checklist.";
+      } catch (error) { qs("powerStatus").textContent = `${error.message} Você pode registrar a verificação manual com justificativa.`; }
+    });
+  }
   qs("testWorkspace").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
@@ -2293,7 +2311,7 @@ function wireControls() {
     const item = state.testChecklist.find((entry) => entry.id === id);
     const result = target.dataset.checkValue;
     if (!item || !window.CAIJ_TEST_CHECKLIST.results.includes(result) || item.result === result) return;
-    if (["audio.speakers", "trackpad.movement", "trackpad.buttons"].includes(id) && result === "passed" && !item.evidence) { qs("hardwareChecklistStatus").textContent = "Registre a detecção ou confirme manualmente com justificativa antes de aprovar."; return; }
+    if (["audio.speakers", "trackpad.movement", "trackpad.buttons", "charger.connectors"].includes(id) && result === "passed" && !item.evidence) { qs("hardwareChecklistStatus").textContent = "Registre a detecção ou confirme manualmente com justificativa antes de aprovar."; return; }
     invalidateTestConfirmation();
     item.result = result;
     renderTests();

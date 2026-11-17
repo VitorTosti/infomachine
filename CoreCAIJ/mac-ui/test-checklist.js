@@ -78,6 +78,11 @@
            (item.evidence.source === "auto" && !(item.id === "trackpad.movement" ? /^\d+ movimentos detectados/.test(item.evidence.detail) && Number.parseInt(item.evidence.detail, 10) >= 20 : /esquerdo [1-9]\d*, direito [1-9]\d*/.test(item.evidence.detail))))) {
         errors.push(`Registre a detecção ou justifique a confirmação manual de ${item.label}.`);
       }
+      if (item.id === "charger.connectors" && item.result === "passed" &&
+          (!item.evidence || !["auto", "manual"].includes(item.evidence.source) || !String(item.evidence.detail || "").trim() ||
+           (item.evidence.source === "auto" && !item.evidence.detail.includes("bateria para tomada")))) {
+        errors.push("Registre a reconexão do carregador ou justifique a confirmação manual.");
+      }
     }
     if (usbPortCount > 32) errors.push("Informe no máximo 32 portas USB.");
     const available = new Set(items.filter(Boolean).map((item) => item.id));

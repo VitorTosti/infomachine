@@ -226,6 +226,12 @@ class AppState:
                             if not match or int(match.group(1)) < 20: raise ValueError("Movimento insuficiente.")
                         elif not re.search(r"esquerdo [1-9]\d*, direito [1-9]\d*", detail):
                             raise ValueError("Cliques esquerdo e direito obrigatorios.")
+                if item["id"] == "charger.connectors" and result == "passed":
+                    evidence = item.get("evidence") or {}
+                    if not isinstance(evidence, dict) or evidence.get("source") not in ("auto", "manual") or not str(evidence.get("detail") or "").strip():
+                        raise ValueError("Aprovacao do carregador exige deteccao ou justificativa manual.")
+                    if evidence["source"] == "auto" and "bateria para tomada" not in evidence["detail"]:
+                        raise ValueError("Reconexao do carregador nao comprovada.")
                 if mode == "APROVADO" and result in ("failed", "untested"):
                     raise ValueError("Falha ou item nao testado impede aprovacao.")
             if usb_ports > 32 or not required_ids.issubset(ids):
