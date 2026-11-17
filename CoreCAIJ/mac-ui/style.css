@@ -1134,10 +1134,6 @@ button { border-radius: 7px; transition: border-color 140ms ease, background 140
 .windows-numpad .numpad-enter { grid-row: span 2; }
 .windows-numpad .numpad-zero { grid-column: span 2; width: auto; }
 .windows-keyboard-footer { position: relative; display: flex; align-items: end; height: calc(var(--key) + clamp(10px, .8vw, 15px)); }
-.windows-touchpad { display: flex; position: absolute; left: calc(var(--main-width) * .35); bottom: 0; gap: var(--key-gap); height: calc(var(--key) * .78); }
-.windows-touchpad span { display: block; width: calc(var(--key) * 1.8); border: 1px solid #fff; border-radius: 0 0 16px 16px; }
-.windows-touchpad span:nth-child(2) { width: calc(var(--key) * .48); border-radius: 0; }
-.windows-touchpad span.pressed { background: #fff; box-shadow: 0 0 0 2px #00d5e5; }
 .windows-arrow-keys { display: flex; gap: var(--key-gap); margin-left: calc(var(--main-width) - var(--key) * .8); }
 .windows-arrow-keys kbd { flex: 0 0 var(--key); }
 .keyboard-map.windows-keyboard kbd.active-key {
@@ -5911,6 +5907,11 @@ button, input, select, textarea { caret-color: #89e4d2; }
 @media(max-width:1000px) { .hardware-check-item { grid-template-columns: minmax(0,1fr); } .test-confirmation-fields { grid-template-columns: 1fr; } .tests-page #testSequenceList, .tests-page #testsReportDetails { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 
 .keyboard-capture-controls { display: flex; align-items: center; gap: 16px; margin: 12px 0 20px; }
+.keyboard-recent { display: grid; gap: 7px; margin: 12px 0; color: #c6d5e2; font-size: 13px; }
+.keyboard-recent-line { display: flex; align-items: center; gap: 6px; min-height: 44px; overflow-x: auto; padding: 7px 9px; border: 1px solid #30465b; border-radius: 8px; background: #0c1927; white-space: nowrap; }
+.keyboard-recent-key { flex: 0 0 auto; min-width: 30px; padding: 5px 8px; border: 1px solid #537086; border-radius: 5px; color: #e9f1f7; text-align: center; font-weight: 600; }
+.keyboard-recent-key.rapid { border-color: #f5aa64; background: #4a3021; color: #ffe1bd; }
+.keyboard-recent-key.held { border-color: #537086; color: #98aebf; }
 .keyboard-capture-controls button { flex: 0 0 auto; min-height: 44px; }
 .keyboard-capture-controls p { margin: 0; max-width: 72ch; color: #b9ccdb; font-size: 13px; line-height: 1.6; }
 .keyboard-map:focus-visible { outline: 2px solid #84dfd0; outline-offset: 6px; }

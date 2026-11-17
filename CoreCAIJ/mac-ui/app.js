@@ -36,6 +36,7 @@ const state = {
   audioFrame: 0,
   keyboardHandler: null,
   keyboardPressed: null,
+  keyboardRecentEvents: [],
   keyboardCaptureCleanup: null,
   keyboardLayoutE14: null,
   mouseButtonCleanup: null,
@@ -1093,6 +1094,7 @@ function syncTestEquipment() {
     state.testSessionSerial = serial;
     state.testChecklist = window.CAIJ_TEST_CHECKLIST.createChecklist({ usbPorts: ["USB 1", "USB 2"] });
     state.keyboardPressed = null;
+    state.keyboardRecentEvents = [];
     Object.keys(state.tests).forEach((key) => state.tests[key] = "pending");
     stopActiveTest();
     qs("testGeneralNotes").value = "";
@@ -1616,7 +1618,6 @@ function openKeyboardTest() {
           </div>
         </div>
         <div class="windows-keyboard-footer">
-          <div class="windows-touchpad" aria-label="Teste dos botões do mouse ou touchpad" title="Clique aqui com os botões esquerdo, meio e direito"><span data-mouse-button="0" title="Clique esquerdo"></span><span data-mouse-button="1" title="Clique do meio"></span><span data-mouse-button="2" title="Clique direito"></span></div>
           <div class="windows-arrow-keys">${["ARROWLEFT","ARROWDOWN","ARROWRIGHT"].map((key) => renderKey(key)).join("")}</div>
         </div>
       </div>`;
@@ -1625,9 +1626,18 @@ function openKeyboardTest() {
     keyboardMarkup = `<div class="keyboard-map mac-keyboard">${macKeyboardRows.map((row) => `<div class="keyboard-row">${row.map((key) => renderKey(key)).join("")}</div>`).join("")}</div>`;
   }
   const keyboardHelp = isWindowsPreview
-    ? "Pressione cada tecla. No E14, confirme Fn após usá-la com uma tecla de função. Se Prt Sc abrir a captura, confirme-a manualmente. Nos três campos abaixo, clique com esquerdo, meio e direito."
+    ? "Pressione cada tecla. No E14, confirme Fn após usá-la com uma tecla de função. Se Prt Sc abrir a captura, confirme-a manualmente. Observe a sequência abaixo para detectar teclas repetidas."
     : "Pressione cada tecla. Se F11 controlar a tela do Mac, clique em F11 no mapa para confirmar.";
-  qs("activeTestBody").innerHTML = `<div class="keyboard-progress"><div><span>Teclas reconhecidas</span><small>${keyboardHelp}</small>${isWindowsPreview ? '<small id="keyboardLastEvent" aria-live="polite">Última tecla: aguardando</small><small id="keyboardLastPointer" aria-live="polite">Último clique: aguardando</small>' : ""}</div><strong id="keyboardCount">0 / ${totalKeys}</strong></div><div class="keyboard-capture-controls"><button type="button" class="secondary" id="focusKeyboardCapture">Focar área do teclado</button><p id="keyboardCaptureStatus" role="status"></p></div>${keyboardMarkup}`;
+  qs("activeTestBody").innerHTML = `<div class="keyboard-progress"><div><span>Teclas reconhecidas</span><small>${keyboardHelp}</small>${isWindowsPreview ? '<small id="keyboardLastEvent" aria-live="polite">Última tecla: aguardando</small>' : ""}</div><strong id="keyboardCount">0 / ${totalKeys}</strong></div><div class="keyboard-recent"><span>Últimas teclas recebidas</span><div id="keyboardRecentKeys" class="keyboard-recent-line" aria-label="Sequência das últimas teclas recebidas"></div></div><div class="keyboard-capture-controls"><button type="button" class="secondary" id="focusKeyboardCapture">Focar área do teclado</button><p id="keyboardCaptureStatus" role="status"></p></div>${keyboardMarkup}`;
+  const recentEvents = state.keyboardRecentEvents || [];
+  state.keyboardRecentEvents = recentEvents;
+  const renderRecentKeys = () => {
+    const line = qs("keyboardRecentKeys");
+    if (!line) return;
+    line.innerHTML = recentEvents.length ? recentEvents.map((entry) => `<span class="keyboard-recent-key${entry.rapid ? " rapid" : ""}${entry.held ? " held" : ""}" title="${entry.held ? "Repetição ao segurar a tecla" : entry.rapid ? "Dois acionamentos rápidos" : "Tecla recebida"}">${escapeHtml(entry.label)}${entry.held ? " ↻" : ""}</span>`).join("") : '<small>Pressione uma tecla para iniciar a sequência.</small>';
+    line.scrollLeft = line.scrollWidth;
+  };
+  renderRecentKeys();
   const visibleKeys = new Set([...qs("activeTestBody").querySelectorAll("kbd[data-key]")].map((item) => item.dataset.key));
   for (const key of pressed) if (!visibleKeys.has(key)) pressed.delete(key);
   qs("activeTestBody").querySelectorAll("kbd[data-key]").forEach((item) => {
@@ -1661,6 +1671,13 @@ function openKeyboardTest() {
     event.stopPropagation();
     event.stopImmediatePropagation();
     const key = normalizeKeyboardEvent(event);
+    if (event.type === "keydown") {
+      const now = Date.now();
+      const previous = recentEvents[recentEvents.length - 1];
+      recentEvents.push({ label: visibleKeys.has(key) ? key : String(event.key || event.code || "?"), code: event.code, at: now, rapid: !event.repeat && previous?.code === event.code && now - previous.at <= 150, held: Boolean(event.repeat) });
+      if (recentEvents.length > 24) recentEvents.shift();
+      renderRecentKeys();
+    }
     if (isWindowsPreview && event.type === "keydown") {
       const lastEvent = qs("keyboardLastEvent");
       if (lastEvent) lastEvent.textContent = `Última tecla: código físico ${event.code || "indisponível"} · caractere ${event.key || "indisponível"} · mapa ${visibleKeys.has(key) ? key : "não identificado"}`;
@@ -1714,14 +1731,6 @@ function openKeyboardTest() {
     document.removeEventListener("focusin", onFocusIn);
     document.removeEventListener("visibilitychange", onVisibilityChange);
   };
-  const touchpadButtons = keyboardMap?.querySelector(".windows-touchpad");
-  if (keyboardMap && touchpadButtons) {
-    state.mouseButtonCleanup = listenForMouseButtons(keyboardMap, (button, event) => {
-      if (event.target?.closest?.("kbd")) return;
-      touchpadButtons.querySelector(`[data-mouse-button="${button}"]`)?.classList.add("pressed");
-    qs("keyboardLastPointer").textContent = `Último clique: ${["esquerdo", "do meio", "direito"][button]} detectado`;
-    });
-  }
   document.addEventListener("keydown", state.keyboardHandler, true);
   document.addEventListener("keyup", state.keyboardHandler, true);
   focusMap();
@@ -2270,13 +2279,14 @@ function wireControls() {
     if (action === "open") return openTest(test);
     if (action === "pass" || action === "fail") return openTest(test);
     invalidateTestConfirmation();
-    if (test === "keyboard") { state.keyboardPressed = null; if (state.activeTest === "keyboard") openKeyboardTest(); }
+    if (test === "keyboard") { state.keyboardPressed = null; state.keyboardRecentEvents = []; if (state.activeTest === "keyboard") openKeyboardTest(); }
     state.testChecklist.filter((item) => item.testId === test).forEach((item) => { item.result = "pending"; item.notes = ""; delete item.evidence; });
     if (state.activeTest === test) renderHardwareChecklist();
     renderTests();
   });
   qs("resetTests").addEventListener("click", () => {
     state.keyboardPressed = null;
+    state.keyboardRecentEvents = [];
     invalidateTestConfirmation();
     state.testChecklist.forEach((item) => { item.result = "pending"; item.notes = ""; delete item.evidence; });
     qs("testGeneralNotes").value = "";

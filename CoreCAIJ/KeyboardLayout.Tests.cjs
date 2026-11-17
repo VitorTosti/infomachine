@@ -3,15 +3,10 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const app = fs.readFileSync(`${__dirname}/mac-ui/app.js`, 'utf8');
 assert.match(app, /function applyState\(data\)[\s\S]*?renderSerialOsLookup\(\);\s*refreshKeyboardLayoutForDevice\(\);/);
-const touchpadListeners = {};
-const touchpadButton = { classList: { add(name) { this.pressed = name === 'pressed'; } } };
-const touchpad = {
-  querySelector(selector) { return /data-mouse-button="[012]"/.test(selector) ? touchpadButton : null; },
-};
 const keyboardMap = {
-  addEventListener(name, handler) { touchpadListeners[name] = handler; },
-  removeEventListener(name) { delete touchpadListeners[name]; },
-  querySelector(selector) { return selector === '.windows-touchpad' ? touchpad : null; },
+  addEventListener() {},
+  removeEventListener() {},
+  querySelector() { return null; },
   querySelectorAll() { return []; },
   setAttribute(name, value) { this[name] = value; },
   focus() { this.focused = true; },
@@ -27,15 +22,16 @@ const body = {
 };
 const count = { textContent: '' };
 const lastEvent = { textContent: '' };
-const lastPointer = { textContent: '' };
+const recentLine = { innerHTML: '', scrollLeft: 0, scrollWidth: 100 };
 const state = { info: { modelo: 'Lenovo ThinkPad E14 Gen 2' }, activeTest: 'keyboard' };
 const captureStatus = { textContent: '' };
 const focusCaptureButton = { addEventListener() {}, focus() {} };
-const elementsById = { keyboardCount: count, keyboardLastEvent: lastEvent, keyboardLastPointer: lastPointer, keyboardCaptureStatus: captureStatus, focusKeyboardCapture: focusCaptureButton };
+const elementsById = { keyboardCount: count, keyboardLastEvent: lastEvent, keyboardRecentKeys: recentLine, keyboardCaptureStatus: captureStatus, focusKeyboardCapture: focusCaptureButton };
 const listenerTarget = { addEventListener() {}, removeEventListener() {} };
 const context = vm.createContext({
   state,
   isWindowsPreview: true,
+  escapeHtml: value => String(value),
   qs: (id) => elementsById[id] || body,
   window: listenerTarget,
   document: { ...listenerTarget, hasFocus: () => true, activeElement: null, hidden: false },
@@ -45,11 +41,8 @@ context.openKeyboardTest();
 assert.match(body.innerHTML, /data-key="FN"[^>]*>Fn<\/kbd><kbd[^>]*data-key="CONTROLLEFT"[^>]*>CTRL<\/kbd><kbd[^>]*data-key="WINDOWSLEFT"/);
 assert.match(body.innerHTML, /data-key="ALTRIGHT"[^>]*>ALT GR<\/kbd><kbd[^>]*data-key="PRINTSCREEN"[^>]*>Prt<br>Sc<\/kbd><kbd[^>]*data-key="INTLRO"[^>]*>\? \/ °<\/kbd><kbd[^>]*data-key="CONTROLRIGHT"/);
 assert.match(body.innerHTML, /data-key="FN"[^>]*data-manual-confirm="true"/);
-assert.match(body.innerHTML, /data-mouse-button="0"[\s\S]*data-mouse-button="1"[\s\S]*data-mouse-button="2"/);
-touchpadListeners.pointerdown({ type: 'pointerdown', button: 2, target: {}, preventDefault() {} });
-touchpadListeners.contextmenu({ type: 'contextmenu', button: 2, target: {}, preventDefault() {} });
-assert.equal(touchpadButton.classList.pressed, true);
-assert.match(lastPointer.textContent, /direito detectado/);
+assert.doesNotMatch(body.innerHTML, /data-mouse-button|windows-touchpad|Último clique/);
+assert.match(body.innerHTML, /Últimas teclas recebidas/);
 assert.equal(context.normalizeKeyboardEvent({ code: 'AltRight', key: 'AltGraph' }), 'ALTRIGHT');
 assert.equal(context.normalizeKeyboardEvent({ code: 'PrintScreen', key: 'PrintScreen' }), 'PRINTSCREEN');
 for (const key of ['/', '?', '°']) assert.equal(context.normalizeKeyboardEvent({ code: 'IntlRo', key }), 'INTLRO');
@@ -58,12 +51,15 @@ assert.match(body.innerHTML, /data-key="PRINTSCREEN"[^>]*data-manual-confirm="tr
 state.keyboardHandler({ type: 'keydown', code: 'IntlRo', key: '/', preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() {} });
 assert.match(lastEvent.textContent, /código físico IntlRo · caractere \/ · mapa INTLRO/);
 assert.equal(state.keyboardPressed.has('INTLRO'), true);
+state.keyboardHandler({ type: 'keydown', code: 'KeyA', key: 'a', repeat: false, preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() {} });
+state.keyboardHandler({ type: 'keydown', code: 'KeyA', key: 'a', repeat: false, preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() {} });
+assert.match(recentLine.innerHTML, /class="keyboard-recent-key"[^>]*>A<\/span><span class="keyboard-recent-key rapid"[^>]*>A<\/span>/, 'Dois acionamentos aparecem em sequência');
 state.keyboardPressed.delete('INTLRO');
 state.info.modelo = 'Dell Latitude 5320';
 context.openKeyboardTest();
 assert.match(body.innerHTML, /class="windows-function-end"[\s\S]*data-key="HOME"[\s\S]*data-key="END"/);
 assert.doesNotMatch(body.innerHTML, /data-key="WINDOWSRIGHT"/);
-assert.match(body.innerHTML, /class="windows-keyboard-footer"[\s\S]*class="windows-touchpad"[\s\S]*class="windows-arrow-keys"/);
+assert.match(body.innerHTML, /class="windows-keyboard-footer"[\s\S]*class="windows-arrow-keys"/);
 assert.equal(context.normalizeKeyboardEvent({ code: 'IntlRo', key: '/' }), '/');
 state.info.modelo = '';
 state.keyboardPressed = new Set(['A']);
