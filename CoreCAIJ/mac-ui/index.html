@@ -532,7 +532,7 @@
         <section id="hardwareChecklist" class="hardware-checklist" aria-labelledby="hardwareChecklistTitle">
           <header><div><h3 id="hardwareChecklistTitle">Checklist do teste</h3><p>Registre o resultado de cada verificação. Justifique as reprovações e os itens não testados. Em Não se aplica, a observação é opcional.</p></div></header>
           <div id="hardwareChecklistItems"></div>
-          <div id="usbPortTools" class="hidden"><label for="usbPortName">Nome da porta USB</label><div class="usb-port-add"><input id="usbPortName" maxlength="80" placeholder="Ex.: USB-C esquerda"><button type="button" id="addUsbPort" class="secondary">Adicionar porta</button></div></div>
+          <div id="usbPortTools" class="hidden usb-port-add"><button type="button" class="secondary" data-usb-add="USB">+1 USB</button><button type="button" class="secondary" data-usb-add="USB-C">+1 USB-C</button></div>
           <p id="hardwareChecklistStatus" role="status"></p>
         </section>
         <section class="test-sequence" aria-labelledby="testSequenceTitle">

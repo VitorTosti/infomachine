@@ -1124,15 +1124,19 @@ function renderHardwareChecklist() {
   const test = state.activeTest;
   qs("hardwareChecklistItems").innerHTML = state.testChecklist.filter((item) => item.testId === test).map((item) => {
     const exception = ["failed", "untested"].includes(item.result);
-    const identity = item.id.startsWith("usb.port-") ? `<label>Identificação da porta<input data-check-label="${item.id}" maxlength="80" value="${escapeHtml(item.label)}" aria-label="Nome da porta ${escapeHtml(item.label)}"></label>` : `<span class="hardware-check-label">${escapeHtml(item.label)}</span>`;
+    const compact = test === "usb";
+    const removable = item.id.startsWith("usb.port-") ? `<button type="button" class="usb-port-remove" data-usb-remove="${item.id}" aria-label="Remover ${escapeHtml(item.label)}" title="Remover porta">×</button>` : "";
+    const identity = `<span class="hardware-check-label">${escapeHtml(item.label)}</span>${removable}`;
     const resultButton = (result, text) => `<button type="button" class="check-result-button check-result-${result}" data-check-result="${item.id}" data-check-value="${result}" aria-pressed="${item.result === result}">${text || escapeHtml(window.CAIJ_TEST_CHECKLIST.resultLabels[result])}</button>`;
     const choices = `<fieldset class="check-result-options"><legend>Resultado: ${escapeHtml(item.label)}</legend><div class="check-result-main">${resultButton("passed", '<span aria-hidden="true">✓</span> Aprovado')}${resultButton("failed", '<span aria-hidden="true">×</span> Reprovado')}</div><div class="check-result-exceptions">${resultButton("not_applicable")}${resultButton("untested")}${resultButton("pending", "Limpar")}</div></fieldset>`;
     const requiresEvidence = ["audio.speakers", "trackpad.movement", "trackpad.buttons", "charger.connectors"].includes(item.id);
     const evidenceView = requiresEvidence ? `<p class="hardware-check-evidence">${item.evidence ? `${item.evidence.source === "manual" ? "Verificação manual" : "Detecção registrada"}: ${escapeHtml(item.evidence.detail)}` : "Aguardando detecção automática."}</p>${item.evidence?.source === "auto" ? "" : `<button type="button" class="secondary hardware-check-manual" data-evidence-manual="${item.id}">${item.evidence?.source === "manual" ? "Alterar justificativa manual" : "Detecção falhou? Registrar verificação manual"}</button>`}` : "";
-    return `<article class="hardware-check-item" data-result="${item.result}"><div class="hardware-check-identity">${identity}${evidenceView}</div>${choices}<label class="hardware-check-note" for="note-${item.id}">${exception ? "Justificativa obrigatória" : "Detalhe da verificação (opcional)"}<input id="note-${item.id}" data-check-note="${item.id}" maxlength="500" value="${escapeHtml(item.notes)}"${exception ? " required" : ""} placeholder="Descreva o comportamento observado ou o motivo da exceção"></label></article>`;
+    const note = compact && !exception && !item.notes ? "" : `<label class="hardware-check-note" for="note-${item.id}">${exception ? "Justificativa obrigatória" : "Detalhe da verificação (opcional)"}<input id="note-${item.id}" data-check-note="${item.id}" maxlength="500" value="${escapeHtml(item.notes)}"${exception ? " required" : ""} placeholder="Descreva o comportamento observado ou o motivo da exceção"></label>`;
+    return `<article class="hardware-check-item${compact ? " hardware-check-compact" : ""}" data-result="${item.result}"><div class="hardware-check-identity">${identity}${evidenceView}</div>${choices}${note}</article>`;
   }).join("");
   qs("usbPortTools").classList.toggle("hidden", test !== "usb");
-  qs("hardwareChecklistStatus").textContent = ["usb", "charger", "network", "hdmi"].includes(test)
+  qs("hardwareChecklistStatus").textContent = test === "usb" ? "Conecte um dispositivo em cada porta e marque o resultado. Reprovado ou Não testado pede justificativa."
+    : ["charger", "network", "hdmi"].includes(test)
     ? "Conecte o acessório e verifique o funcionamento. Registre manualmente o resultado de cada item; esta etapa não faz detecção automática." : "Registre o resultado de cada item e use os botões acima para avançar.";
 }
 
@@ -2306,6 +2310,14 @@ function wireControls() {
     setStatus("Relatório confirmado e disponível para o cadastro do rastreador.", "ok");
   });
   qs("hardwareChecklistItems").addEventListener("click", (event) => {
+    const removeId = event.target.closest("[data-usb-remove]")?.dataset.usbRemove;
+    if (removeId) {
+      invalidateTestConfirmation();
+      state.testChecklist = state.testChecklist.filter((entry) => entry.id !== removeId);
+      state.testChecklist.find((entry) => entry.id === "usb.inventory").result = "pending";
+      renderHardwareChecklist(); renderTests(); renderActiveTestNavigation();
+      return;
+    }
     const manualId = event.target.closest("[data-evidence-manual]")?.dataset.evidenceManual;
     if (manualId) {
       const item = state.testChecklist.find((entry) => entry.id === manualId);
@@ -2337,14 +2349,17 @@ function wireControls() {
     invalidateTestConfirmation();
     renderTests();
   });
-  qs("addUsbPort").addEventListener("click", () => {
-    const name = qs("usbPortName").value.trim();
-    if (!name || state.testChecklist.filter((item) => item.testId === "usb").length >= 33) { qs("hardwareChecklistStatus").textContent = "Informe um nome para a porta (limite de 32 portas)."; return; }
+  qs("usbPortTools").addEventListener("click", (event) => {
+    const kind = event.target.closest("button[data-usb-add]")?.dataset.usbAdd;
+    if (!kind) return;
+    const ports = state.testChecklist.filter((item) => item.id.startsWith("usb.port-"));
+    if (ports.length >= 32) { qs("hardwareChecklistStatus").textContent = "Limite de 32 portas USB."; return; }
     invalidateTestConfirmation();
-    const ports = state.testChecklist.filter((item) => item.testId === "usb" && item.id !== "usb.inventory");
-    state.testChecklist.push({ id: `usb.port-${ports.length + 1}`, testId: "usb", label: name, result: "pending", notes: "" });
+    const pattern = new RegExp(`^${kind.replace("-", "\\-")} (\\d+)$`);
+    const nextNumber = Math.max(0, ...ports.map((item) => Number(pattern.exec(item.label)?.[1] || 0))) + 1;
+    const nextId = Math.max(0, ...ports.map((item) => Number(item.id.slice("usb.port-".length)) || 0)) + 1;
+    state.testChecklist.push({ id: `usb.port-${nextId}`, testId: "usb", label: `${kind} ${nextNumber}`, result: "pending", notes: "" });
     state.testChecklist.find((item) => item.id === "usb.inventory").result = "pending";
-    qs("usbPortName").value = "";
     renderHardwareChecklist(); renderTests(); renderActiveTestNavigation();
   });
   for (const id of ["testTechnician", "testGeneralNotes", "testEquipmentSerial"]) qs(id).addEventListener("input", () => { invalidateTestConfirmation(); renderTests(); });

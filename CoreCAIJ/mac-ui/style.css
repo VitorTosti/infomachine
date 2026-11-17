@@ -5894,8 +5894,15 @@ button, input, select, textarea { caret-color: #89e4d2; }
 .test-confirmation label { display: block; font-size: 14px; line-height: 1.5; color: #c6d5e2; }
 .test-confirmation .test-attestation { display: flex; align-items: flex-start; gap: 12px; margin: 22px 0; padding: 16px; background: #172d38; border-radius: 8px; }
 .test-attestation input { flex: 0 0 20px; width: 20px; height: 20px; margin-top: 2px; accent-color: #64d9b8; }
-.test-confirmation-entry, .usb-port-add { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 14px; margin-bottom: 14px; }
-.test-confirmation-entry button, .usb-port-add button { min-height: 44px; margin-top: 6px; }
+.test-confirmation-entry { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 14px; margin-bottom: 14px; }
+.test-confirmation-entry button { min-height: 44px; margin-top: 6px; }
+#usbPortTools.usb-port-add:not(.hidden) { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 14px; }
+.usb-port-add button { width: auto; min-height: 40px; padding: 8px 16px; font-weight: 600; }
+.hardware-check-compact { padding: 12px 0; }
+.hardware-check-compact[data-result=passed], .hardware-check-compact[data-result=failed] { padding-left: 16px; }
+.hardware-check-compact .hardware-check-identity { display: flex; align-items: center; gap: 10px; }
+.usb-port-remove { width: 28px; height: 28px; min-height: 0; padding: 0; border: 1px solid #486078; border-radius: 6px; background: transparent; color: #afc0cf; font-size: 16px; line-height: 1; cursor: pointer; }
+.usb-port-remove:hover { color: #ffacb9; border-color: #8f5362; }
 #testConfirmationStatus, #hardwareChecklistStatus { color: #c6d5e2; line-height: 1.6; font-size: 14px; }
 #testConfirmationHistory { display: grid; gap: 10px; list-style: none; padding: 0; }
 #testConfirmationHistory button { white-space: normal; text-align: left; line-height: 1.5; }
