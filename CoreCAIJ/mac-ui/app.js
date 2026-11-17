@@ -104,8 +104,6 @@ function applyPlatformUi() {
   qs("versionBadge").classList.add("hidden");
   qs("devicePanelTitle").textContent = "Informações do Windows";
   qs("testsTitle").textContent = "Central de testes Windows";
-  qs("pointingDeviceTitle").textContent = "Mouse / touchpad";
-  qs("pointingDeviceDescription").textContent = "Validar movimento, cliques e rolagem.";
   testLabels.trackpad = "Mouse / touchpad";
   document.querySelectorAll(".windows-only").forEach((element) => element.classList.remove("hidden"));
 }
@@ -851,7 +849,7 @@ function showAppView(view) {
     populateLabelEditor();
     renderPreview();
   }
-  if (state.view === "tests") renderTests();
+  if (state.view === "tests") { renderTests(); syncTestsViewport(); if (!state.activeTest) void openFirstOpenStep(); }
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -1046,16 +1044,23 @@ function closeOsAlert() {
 }
 
 async function closeTestsPanel() {
-  stopActiveTest();
   if (testsOnlyMode) {
-    if (!validTestSignature()) { qs("testConfirmationStatus").textContent = "Confirme o checklist antes de retornar o relatório ao InfoNotebook."; qs("testConfirmationTitle").scrollIntoView({ block: "center" }); return; }
+    if (!validTestSignature()) { openReview(); qs("activeTestBlockers").textContent = "Confirme o checklist antes de retornar o relatório ao InfoNotebook."; return; }
+    stopActiveTest();
     await copyText(testsReport());
     document.title = "CAIJ_TESTES_CONCLUIDOS";
     qs("closeTests").textContent = "Retornando...";
     qs("closeTests").disabled = true;
     return;
   }
+  stopActiveTest();
   showAppView("home");
+}
+
+function syncTestsViewport() {
+  const card = document.querySelector("#testsView .tests-card");
+  if (!card || qs("testsView").classList.contains("hidden")) return;
+  card.style.setProperty("--tests-top", `${Math.max(0, Math.round(card.getBoundingClientRect().top + window.scrollY))}px`);
 }
 
 function testConfirmationData() {
@@ -1111,6 +1116,7 @@ function syncTestEquipment() {
   }
   qs("testEquipmentSerial").value = serial;
   renderTests();
+  if (state.view === "tests" && !state.activeTest) void openFirstOpenStep();
 }
 
 function deriveChecklistResults() {
@@ -1137,6 +1143,19 @@ function testRailState(test) {
   if (results.includes("failed")) return "failed";
   if (results.includes("untested")) return "untested";
   return results.every((result) => result === "not_applicable") ? "not_applicable" : "passed";
+}
+
+const railStateLabels = { passed: ["✓", "Aprovado"], failed: ["✕", "Reprovado"], untested: ["!", "Com ressalva"], not_applicable: ["–", "Não se aplica"], incomplete: ["!", "Falta"], pending: ["○", "Pendente"] };
+
+function renderTestRail() {
+  const entries = testSequence.map((test) => {
+    const railState = testRailState(test);
+    const [icon, text] = railStateLabels[railState];
+    const status = railState === "incomplete" ? `Falta ${testBlockers(test).length}` : text;
+    return `<li data-state="${railState}"${test === state.activeTest ? ' aria-current="step"' : ""}><button type="button" data-rail-test="${test}"><span class="rail-icon" aria-hidden="true">${icon}</span><span class="rail-copy"><strong>${escapeHtml(testLabels[test])}</strong><span>${status}</span></span></button></li>`;
+  });
+  entries.push(`<li class="rail-review" data-state="review"${state.activeTest === "review" ? ' aria-current="step"' : ""}><button type="button" data-rail-test="review"><span class="rail-icon" aria-hidden="true">▸</span><span class="rail-copy"><strong>Revisão e confirmação</strong></span></button></li>`);
+  qs("testRail").innerHTML = entries.join("");
 }
 
 function renderHardwareChecklist() {
@@ -1264,36 +1283,41 @@ function renderTests() {
   const pending = values.filter((value) => value === "pending").length;
   const done = values.length - pending;
   const completion = Math.round((done / values.length) * 100);
-  qs("testsPassed").textContent = passed;
-  qs("testsFailed").textContent = failed;
-  qs("testsPending").textContent = pending;
-  qs("testsCompletion").textContent = `${done} de ${values.length} checklists preenchidos`;
+  qs("testsCompletion").textContent = `${done} de ${values.length}`;
   qs("testsProgress").style.width = `${completion}%`;
-  qs("testsReport").textContent = `${done} de ${values.length} checklists preenchidos`;
+  qs("testsHeadSerial").textContent = qs("testEquipmentSerial").value ? `Serial ${qs("testEquipmentSerial").value}` : "";
+  qs("testsReport").textContent = `${passed} ${passed === 1 ? "aprovado" : "aprovados"} · ${failed} ${failed === 1 ? "reprovado" : "reprovados"} · ${pending} ${pending === 1 ? "pendente" : "pendentes"}`;
   qs("testsReportDetails").innerHTML = Object.entries(state.tests).map(([key, result]) =>
     `<li data-result="${result}"><span>${escapeHtml(testLabels[key])}</span><strong>${escapeHtml(window.CAIJ_TEST_CHECKLIST.resultLabels[result])}</strong></li>`
   ).join("");
-  qs("testList").querySelectorAll(".test-row").forEach((row) => {
-    const status = state.tests[row.dataset.test];
-    const previousStatus = row.dataset.renderedStatus || "";
-    row.classList.remove("passed", "failed", "not_applicable", "untested");
-    if (status !== "pending") row.classList.add(status);
-    row.dataset.renderedStatus = status;
-    if (previousStatus && previousStatus !== status) {
-      row.classList.remove("status-changed");
-      void row.offsetWidth;
-      row.classList.add("status-changed");
-    }
-    row.querySelector(".test-state").textContent = window.CAIJ_TEST_CHECKLIST.resultLabels[status];
-    row.querySelectorAll("button[data-action]").forEach((button) => {
-      const selected = (button.dataset.action === "pass" && status === "passed") || (button.dataset.action === "fail" && status === "failed");
-      button.classList.toggle("selected", selected);
-      if (button.dataset.action === "pass" || button.dataset.action === "fail") button.setAttribute("aria-pressed", String(selected));
-    });
-  });
   syncCompletedTestsToRecord(pending);
   renderTestConfirmation();
+  renderTestRail();
+  renderActionBar();
   renderOperationalDashboard();
+}
+
+function renderActionBar() {
+  const review = state.activeTest === "review";
+  for (const id of ["skipActiveTest", "failAndNextTest", "passAndNextTest"]) qs(id).classList.toggle("hidden", review);
+  qs("confirmHardwareTests").classList.toggle("hidden", !review);
+  qs("testActionBar").classList.toggle("review", review);
+}
+
+function openReview() {
+  closeScreenTest();
+  stopActiveTest();
+  state.activeTest = "review";
+  qs("testPanel").classList.add("hidden");
+  qs("testReviewPanel").classList.remove("hidden");
+  qs("testWorkspace").scrollTop = 0;
+  renderTests();
+}
+
+async function openFirstOpenStep() {
+  const next = testSequence.find((test) => ["pending", "incomplete"].includes(testRailState(test)));
+  if (next) await openTest(next);
+  else openReview();
 }
 
 function stopActiveTest() {
@@ -1318,29 +1342,19 @@ function stopActiveTest() {
   state.mouseButtonCleanup?.();
   state.mouseButtonCleanup = null;
   state.activeTest = "";
-  qs("testWorkspace").classList.add("hidden");
   qs("activeTestBody").innerHTML = "";
 }
 
 function renderActiveTestNavigation() {
   const currentIndex = testSequence.indexOf(state.activeTest);
-  if (currentIndex < 0) return;
-  const nextTest = testSequence[currentIndex + 1];
-  const isLastTest = !nextTest;
-  qs("activeTestStep").textContent = `TESTE ${currentIndex + 1} DE ${testSequence.length}`;
-  qs("activeTestNextLabel").textContent = isLastTest
-    ? "Último teste da sequência"
-    : `Próximo: ${testLabels[nextTest]}`;
-  qs("passAndNextTest").textContent = isLastTest ? "Aprovado e revisar" : "Aprovado e próximo";
-  qs("failAndNextTest").textContent = isLastTest ? "Reprovado e revisar" : "Reprovado e próximo";
-  const remaining = testSequence.slice(currentIndex + 1).filter((test) => state.tests[test] === "pending").length;
-  qs("testSequenceRemaining").textContent = remaining ? `${remaining} ${remaining === 1 ? "teste pendente a seguir" : "testes pendentes a seguir"}` : isLastTest ? "Última etapa da sequência" : "Nenhum teste pendente a seguir";
-  qs("testSequenceList").innerHTML = testSequence.map((test, index) => {
-    const result = state.tests[test];
-    const current = test === state.activeTest;
-    const status = current ? "Em andamento" : result !== "pending" ? window.CAIJ_TEST_CHECKLIST.resultLabels[result] : index < currentIndex ? "Pendente" : "A seguir";
-    return `<li data-result="${result}"${current ? ' aria-current="step"' : ""}><button type="button" data-sequence-test="${test}"><span class="sequence-position" aria-hidden="true">${index + 1}</span><span class="sequence-copy"><strong>${escapeHtml(testLabels[test])}</strong><span>${status}</span></span></button></li>`;
-  }).join("");
+  if (currentIndex >= 0) {
+    const isLastTest = currentIndex === testSequence.length - 1;
+    qs("activeTestStep").textContent = `${currentIndex + 1} de ${testSequence.length}`;
+    qs("passAndNextTest").textContent = isLastTest ? "Aprovado e revisar" : "Aprovado e próximo";
+    qs("failAndNextTest").textContent = isLastTest ? "Reprovado e revisar" : "Reprovado e próximo";
+  }
+  renderTestRail();
+  renderActionBar();
 }
 
 async function completeActiveTest(result) {
@@ -1362,9 +1376,7 @@ async function completeActiveTest(result) {
     await openTest(nextTest);
     return;
   }
-  stopActiveTest();
-  const footer = document.querySelector(".tests-footer");
-  if (footer) footer.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  openReview();
 }
 
 function requestUserMedia(constraints) {
@@ -1911,7 +1923,9 @@ function openTrackpadTest() {
 async function openTest(test) {
   stopActiveTest();
   state.activeTest = test;
-  qs("testWorkspace").classList.remove("hidden");
+  qs("testReviewPanel").classList.add("hidden");
+  qs("testPanel").classList.remove("hidden");
+  qs("testWorkspace").scrollTop = 0;
   qs("activeTestTitle").textContent = testLabels[test];
   const helps = {
     camera: "Autorize a câmera e confira a nitidez, o enquadramento e a estabilidade da imagem.",
@@ -2283,31 +2297,19 @@ function wireControls() {
 
   qs("openTests").addEventListener("click", openTestsPage);
   qs("closeTests").addEventListener("click", closeTestsPanel);
-  qs("closeActiveTest").addEventListener("click", stopActiveTest);
   qs("skipActiveTest").addEventListener("click", () => completeActiveTest("pending"));
   qs("failAndNextTest").addEventListener("click", () => completeActiveTest("failed"));
   qs("passAndNextTest").addEventListener("click", () => completeActiveTest("passed"));
-  qs("testSequenceList").addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-sequence-test]");
-    const test = button?.dataset.sequenceTest;
-    if (!testSequence.includes(test) || test === state.activeTest) return;
+  qs("testRail").addEventListener("click", (event) => {
+    const test = event.target.closest("button[data-rail-test]")?.dataset.railTest;
+    if (!test || test === state.activeTest) return;
+    if (test === "review") return openReview();
+    if (!testSequence.includes(test)) return;
     closeScreenTest();
     openTest(test);
   });
-  qs("testList").addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-action]");
-    if (!button) return;
-    const test = button.closest(".test-row").dataset.test;
-    const action = button.dataset.action;
-    if (action === "open") return openTest(test);
-    if (action === "pass" || action === "fail") return openTest(test);
-    invalidateTestConfirmation();
-    if (test === "keyboard") { state.keyboardPressed = null; state.keyboardRecentEvents = []; if (state.activeTest === "keyboard") openKeyboardTest(); }
-    state.testChecklist.filter((item) => item.testId === test).forEach((item) => { item.result = "pending"; item.notes = ""; delete item.evidence; });
-    if (state.activeTest === test) renderHardwareChecklist();
-    renderTests();
-  });
   qs("resetTests").addEventListener("click", () => {
+    if (!window.confirm("Limpar todos os resultados deste equipamento?")) return;
     state.keyboardPressed = null;
     state.keyboardRecentEvents = [];
     invalidateTestConfirmation();
@@ -2316,6 +2318,7 @@ function wireControls() {
     Object.keys(state.tests).forEach((key) => state.tests[key] = "pending");
     stopActiveTest();
     renderTests();
+    void openFirstOpenStep();
   });
   qs("copyTestsReport").addEventListener("click", copyTestsReport);
   qs("finishTests").addEventListener("click", async () => {
@@ -2773,17 +2776,12 @@ function initializeAnimatedGradient() {
 }
 
 function initializeTestChecklistUi() {
-  const list = qs("testList");
-  for (const [index, test] of testSequence.entries()) {
-    if (list.querySelector(`[data-test="${test}"]`)) continue;
-    list.insertAdjacentHTML("beforeend", `<article class="test-row" data-test="${test}"><div class="test-identity"><span class="test-number" aria-hidden="true">${String(index + 1).padStart(2, "0")}</span><div><h3>${escapeHtml(testLabels[test])}</h3><p>Verificação física com checklist detalhado.</p></div></div><strong class="test-state">Pendente</strong><div class="test-actions"><button type="button" data-action="open">Abrir teste</button><button type="button" data-action="clear">Limpar</button></div></article>`);
-  }
-  list.querySelectorAll('[data-action="pass"], [data-action="fail"]').forEach((button) => button.remove());
   qs("testEquipmentSerial").readOnly = !testsOnlyMode;
   try { localStorage.removeItem("caij:mac-tests-observation"); } catch (_) {}
 }
 
 initializeTestChecklistUi();
+window.addEventListener("resize", syncTestsViewport);
 applyPlatformUi();
 initializeAnimatedGradient();
 wireControls();

@@ -5923,3 +5923,72 @@ button, input, select, textarea { caret-color: #89e4d2; }
 .keyboard-capture-controls p { margin: 0; max-width: 72ch; color: #b9ccdb; font-size: 13px; line-height: 1.6; }
 .keyboard-map:focus-visible { outline: 2px solid #84dfd0; outline-offset: 6px; }
 @media (max-width: 1100px) { .keyboard-capture-controls { align-items: flex-start; flex-direction: column; gap: 10px; } }
+
+/* Central de testes em tela fixa: lista lateral, painel do teste e barra de ação sempre visíveis. */
+#testsView .tests-card { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; gap: 12px; height: calc(100vh - var(--tests-top, 0px) - var(--tests-bottom, 28px)); min-height: 460px; padding: 0; overflow: hidden; border: 0; background: transparent; }
+body:has(#testsView:not(.hidden)), .app-shell:has(#testsView:not(.hidden)) { min-height: 0; }
+#testsView .tests-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 0; margin: 0; padding: 10px 14px 10px 18px; border: 1px solid #30465b; border-radius: 12px; background: #101e2e; }
+#testsView .tests-head h2 { margin: 0; font-size: 20px; line-height: 1.2; color: #f5f8fc; }
+#testsView #testsHeadSerial { margin: 3px 0 0; color: #afc0cf; font-size: 13px; font-variant-numeric: tabular-nums; }
+#testsView #testsHeadSerial:empty { display: none; }
+#testsView .tests-head-tools { display: flex; align-items: center; gap: 18px; margin-left: auto; }
+#testsView .tests-completion { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 0; border: 0; text-align: left; }
+#testsView .tests-completion strong { color: #e9f1f7; font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#testsView .tests-progress { width: 160px; height: 6px; margin: 0; border-radius: 3px; background: #24384d; overflow: hidden; }
+#testsView .tests-progress span { display: block; height: 100%; border-radius: 3px; background: #7ce5c0; transition: width .2s ease-out; }
+
+#testsView .tests-body { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 12px; min-height: 0; }
+#testsView .tests-rail { min-height: 0; overflow-y: auto; padding: 10px; border: 1px solid #30465b; border-radius: 12px; background: #101e2e; }
+#testRail { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+#testRail li { border: 1px solid transparent; border-radius: 9px; }
+#testRail button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 6px 10px; border: 0; border-radius: 8px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+#testRail button:focus-visible { outline: 3px solid #b7f8eb; outline-offset: 2px; }
+#testRail .rail-icon { display: grid; place-items: center; flex: 0 0 22px; width: 22px; height: 22px; border: 1.5px solid currentColor; border-radius: 50%; font-size: 13px; font-weight: 700; line-height: 1; }
+#testRail .rail-copy { display: flex; flex: 1 1 auto; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+#testRail .rail-copy strong { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+#testRail .rail-copy span { flex: 0 0 auto; font-size: 12px; font-weight: 600; }
+#testRail li[data-state=pending] { color: #8fa3b5; }
+#testRail li[data-state=pending] .rail-icon { border-style: dashed; color: transparent; border-color: #6b8196; }
+#testRail li[data-state=passed] { color: #082c24; background: #7ce5c0; }
+#testRail li[data-state=failed] { color: #3b0d19; background: #ffacb9; }
+#testRail li[data-state=untested] { color: #f0e6b8; border-color: #c6ab68; background: #353425; }
+#testRail li[data-state=incomplete] { color: #f0e6b8; border-color: #c6ab68; border-style: dashed; }
+#testRail li[data-state=not_applicable] { color: #b9c9d8; background: #1d3044; }
+#testRail li[data-state=review] { margin-top: 8px; color: #dce8f2; border-color: #30465b; }
+#testRail li[data-state=review] .rail-icon { border: 0; }
+#testRail li[aria-current=step] { outline: 2px solid #e9f1f7; outline-offset: 1px; }
+#testRail li[data-state=pending][aria-current=step], #testRail li[data-state=review][aria-current=step] { color: #f5f8fc; background: #1b3149; }
+#testRail li:not([aria-current=step]) button:hover { background: rgba(233, 241, 247, .08); }
+
+#testsView #testWorkspace { position: static; inset: auto; z-index: auto; min-width: 0; min-height: 0; max-width: none; margin: 0; padding: 18px 20px; overflow: auto; border: 1px solid #30465b; border-radius: 12px; background: #101e2e; }
+#testsView #testPanel.hidden, #testsView #testReviewPanel.hidden { display: none; }
+#testsView #testPanel > header, #testsView #testReviewPanel > header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; max-width: none; margin: 0; }
+#testsView #testPanel > header h3, #testsView #testReviewPanel > header h3 { margin: 0; font-size: 20px; color: #f5f8fc; }
+#testsView #activeTestStep { color: #afc0cf; font-size: 13px; font-weight: 600; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+#testsView #activeTestHelp { max-width: 80ch; margin: 6px 0 14px; color: #afc0cf; font-size: 14px; line-height: 1.5; }
+#testsView #activeTestBody { min-width: 0; overflow-x: auto; }
+#testsView .hardware-checklist { margin-top: 16px; padding: 14px 0 0; border: 0; border-top: 1px solid #30465b; border-radius: 0; background: transparent; }
+#testsView .hardware-checklist > header h3 { margin: 0; font-size: 15px; color: #e9f1f7; }
+#testsView .hardware-checklist > header p { margin: 2px 0 4px; font-size: 13px; }
+#testsView .hardware-check-item:last-child { border-bottom: 0; }
+#testsView #hardwareChecklistStatus { margin: 8px 0 0; font-size: 13px; color: #afc0cf; }
+#testsView #hardwareChecklistStatus:empty { display: none; }
+#testsView #usbPortTools { margin-top: 12px; }
+
+#testsView .tests-action-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 14px 10px 18px; border: 1px solid #30465b; border-radius: 12px; background: #0c1826; }
+#testsView #activeTestBlockers { min-width: 0; margin: 0; color: #dce8f2; font-size: 14px; line-height: 1.4; }
+#testsView .tests-action-bar .active-test-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; flex: 0 0 auto; }
+#testsView .tests-action-bar button { min-height: 44px; padding: 0 18px; border-radius: 8px; font-weight: 700; }
+#testsView .tests-action-bar button.hidden { display: none; }
+#testsView .tests-action-bar button:focus-visible { outline: 3px solid #b7f8eb; outline-offset: 2px; }
+#testsView .tests-action-bar .active-test-pass { border: 1px solid #7ce5c0; color: #082c24; background: #7ce5c0; }
+#testsView .tests-action-bar .active-test-pass:hover { background: #98edd0; }
+#testsView .tests-action-bar .active-test-fail { border: 1px solid #8f5362; color: #ffacb9; background: transparent; }
+#testsView .tests-action-bar .active-test-fail:hover { background: rgba(255, 172, 185, .1); }
+
+#testsView #testsReport { color: #afc0cf; font-size: 13px; font-weight: 600; }
+#testsView #testsReportDetails { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 14px 0 0; padding: 0; list-style: none; }
+#testsView .test-confirmation { margin: 18px 0 0; padding: 18px 0 0; border: 0; border-top: 1px solid #30465b; border-radius: 0; background: transparent; }
+#testsView .test-confirmation-entry { grid-template-columns: minmax(0, 320px); }
+#testsView .tests-review-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 16px; }
+#testsView .tests-review-tools small { color: #afc0cf; font-size: 13px; }

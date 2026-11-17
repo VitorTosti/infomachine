@@ -470,96 +470,64 @@
         <div class="tests-head-copy">
           <div>
             <h2 id="testsTitle">Central de testes Mac</h2>
-            <p>Realize os testes, preencha o checklist e confirme o relatório ao final.</p>
+            <p id="testsHeadSerial"></p>
           </div>
         </div>
         <div class="tests-head-tools">
+          <div class="tests-completion"><strong id="testsCompletion">0 de 9</strong><div class="tests-progress" aria-label="Progresso dos testes"><span id="testsProgress"></span></div></div>
           <button type="button" class="icon-btn" id="closeTests">Voltar ao menu</button>
         </div>
       </header>
 
-      <section class="tests-overview" aria-label="Resumo dos testes">
-        <div class="tests-completion"><strong id="testsCompletion">0 de 9 preenchidos</strong><div class="tests-progress" aria-label="Progresso dos testes"><span id="testsProgress"></span></div></div>
-        <div class="test-counter passed"><span>Aprovados</span><strong id="testsPassed">0</strong></div>
-        <div class="test-counter failed"><span>Reprovados</span><strong id="testsFailed">0</strong></div>
-        <div class="test-counter pending"><span>Pendentes</span><strong id="testsPending">9</strong></div>
-      </section>
+      <div class="tests-body">
+        <nav class="tests-rail" aria-label="Testes"><ol id="testRail"></ol></nav>
 
-      <section class="test-list" id="testList">
-        <div class="test-list-head" aria-hidden="true"><span>Teste</span><span>Estado</span><span>Ações</span></div>
-        <article class="test-row" data-test="camera">
-          <div class="test-identity"><span class="test-number" aria-hidden="true">01</span><div><h3>Câmera</h3><p>Confira a nitidez e a estabilidade da imagem.</p></div></div>
-          <strong class="test-state">Pendente</strong>
-          <div class="test-actions"><button type="button" data-action="open">Abrir teste</button><button type="button" data-action="pass">Aprovado</button><button type="button" data-action="fail">Reprovado</button><button type="button" data-action="clear">Limpar resultado</button></div>
-        </article>
-        <article class="test-row" data-test="keyboard">
-          <div class="test-identity"><span class="test-number" aria-hidden="true">02</span><div><h3>Teclado</h3><p>Confira todas as teclas, incluindo Esc, F1–F12 e pontuação.</p></div></div>
-          <strong class="test-state">Pendente</strong>
-          <div class="test-actions"><button type="button" data-action="open">Abrir teste</button><button type="button" data-action="pass">Aprovado</button><button type="button" data-action="fail">Reprovado</button><button type="button" data-action="clear">Limpar resultado</button></div>
-        </article>
-        <article class="test-row" data-test="audio">
-          <div class="test-identity"><span class="test-number" aria-hidden="true">03</span><div><h3>Som</h3><p>Confira se os alto-falantes funcionam sem distorção.</p></div></div>
-          <strong class="test-state">Pendente</strong>
-          <div class="test-actions"><button type="button" data-action="open">Abrir teste</button><button type="button" data-action="pass">Aprovado</button><button type="button" data-action="fail">Reprovado</button><button type="button" data-action="clear">Limpar resultado</button></div>
-        </article>
-        <article class="test-row" data-test="screen">
-          <div class="test-identity"><span class="test-number" aria-hidden="true">04</span><div><h3>Tela e pixels</h3><p>Confira cores, brilho, manchas e pixels com defeito.</p></div></div>
-          <strong class="test-state">Pendente</strong>
-          <div class="test-actions"><button type="button" data-action="open">Abrir teste</button><button type="button" data-action="pass">Aprovado</button><button type="button" data-action="fail">Reprovado</button><button type="button" data-action="clear">Limpar resultado</button></div>
-        </article>
-        <article class="test-row" data-test="trackpad">
-          <div class="test-identity"><span class="test-number" aria-hidden="true">05</span><div><h3 id="pointingDeviceTitle">Trackpad</h3><p id="pointingDeviceDescription">Confira o movimento, os cliques e a rolagem.</p></div></div>
-          <strong class="test-state">Pendente</strong>
-          <div class="test-actions"><button type="button" data-action="open">Abrir teste</button><button type="button" data-action="pass">Aprovado</button><button type="button" data-action="fail">Reprovado</button><button type="button" data-action="clear">Limpar resultado</button></div>
-        </article>
-      </section>
+        <section class="test-workspace" id="testWorkspace">
+          <div id="testPanel">
+            <header><h3 id="activeTestTitle">Teste</h3><span id="activeTestStep">1 de 9</span></header>
+            <p id="activeTestHelp"></p>
+            <div id="activeTestBody"></div>
+            <section id="hardwareChecklist" class="hardware-checklist" aria-labelledby="hardwareChecklistTitle">
+              <header><h3 id="hardwareChecklistTitle">Checklist</h3><p>Marque cada item. Reprovado e Não testado pedem justificativa.</p></header>
+              <div id="hardwareChecklistItems"></div>
+              <div id="usbPortTools" class="hidden usb-port-add"><button type="button" class="secondary" data-usb-add="USB">+1 USB</button><button type="button" class="secondary" data-usb-add="USB-C">+1 USB-C</button></div>
+              <p id="hardwareChecklistStatus" role="status"></p>
+            </section>
+          </div>
 
-      <section class="test-workspace hidden" id="testWorkspace" aria-live="polite">
-        <header><div><span>TESTE ABERTO</span><h3 id="activeTestTitle">Teste</h3></div><button type="button" class="icon-btn" id="closeActiveTest">Fechar teste</button></header>
-        <p id="activeTestHelp"></p>
-        <footer class="active-test-actions">
-          <div class="active-test-progress">
-            <span id="activeTestStep">TESTE 1 DE 9</span>
-            <small id="activeTestNextLabel">Próximo: Teclado</small>
-          </div>
-          <div class="active-test-buttons">
-            <button type="button" class="secondary" id="skipActiveTest">Pular etapa</button>
-            <button type="button" class="active-test-fail" id="failAndNextTest">Reprovado e próximo</button>
-            <button type="button" class="active-test-pass" id="passAndNextTest">Aprovado e próximo</button>
-          </div>
-        </footer>
-        <div id="activeTestBody"></div>
-        <section id="hardwareChecklist" class="hardware-checklist" aria-labelledby="hardwareChecklistTitle">
-          <header><div><h3 id="hardwareChecklistTitle">Checklist do teste</h3><p>Registre o resultado de cada verificação. Justifique as reprovações e os itens não testados. Em Não se aplica, a observação é opcional.</p></div></header>
-          <div id="hardwareChecklistItems"></div>
-          <div id="usbPortTools" class="hidden usb-port-add"><button type="button" class="secondary" data-usb-add="USB">+1 USB</button><button type="button" class="secondary" data-usb-add="USB-C">+1 USB-C</button></div>
-          <p id="hardwareChecklistStatus" role="status"></p>
+          <section id="testReviewPanel" class="hidden" aria-labelledby="testReviewTitle">
+            <header><h3 id="testReviewTitle">Revisão e confirmação</h3><strong id="testsReport" aria-live="polite">Aguardando testes</strong></header>
+            <ul id="testsReportDetails" aria-label="Resultado de cada teste"></ul>
+            <section class="test-confirmation" aria-labelledby="testConfirmationTitle">
+              <h3 id="testConfirmationTitle">Confirmação do técnico</h3>
+              <p>A confirmação registra o nome informado pelo técnico e não exige senha.</p>
+              <div class="test-confirmation-fields">
+                <label>Técnico responsável<input id="testTechnician" maxlength="100" autocomplete="name" placeholder="Nome do técnico"></label>
+                <label>Serial do equipamento<input id="testEquipmentSerial" readonly></label>
+              </div>
+              <label>Observações gerais dos testes<textarea id="testGeneralNotes" rows="2" maxlength="2000" placeholder="Detalhes adicionais observados durante os testes"></textarea></label>
+              <label class="test-attestation"><input id="testAttestation" type="checkbox">Confirmo que realizei os testes indicados, identifiquei os itens que não se aplicam e descrevi corretamente as falhas e os itens não testados.</label>
+              <label id="testConfirmationInstruction" for="testConfirmationWord">Digite APROVADO para confirmar os resultados.</label>
+              <div class="test-confirmation-entry"><input id="testConfirmationWord" autocomplete="off" spellcheck="false" placeholder="APROVADO"></div>
+              <p id="testConfirmationStatus" role="status"></p>
+              <details><summary>Relatórios locais confirmados</summary><ul id="testConfirmationHistory"></ul></details>
+            </section>
+            <div class="tests-review-tools">
+              <button type="button" class="secondary" id="copyTestsReport">Copiar relatório</button>
+              <button type="button" class="secondary" id="resetTests">Limpar resultados</button>
+              <small id="testsActionStatus" aria-live="polite"></small>
+            </div>
+          </section>
         </section>
-        <section class="test-sequence" aria-labelledby="testSequenceTitle">
-          <header><h3 id="testSequenceTitle">Sequência dos testes</h3><p id="testSequenceRemaining" role="status"></p></header>
-          <ol id="testSequenceList" aria-label="Ordem dos testes"></ol>
-        </section>
-      </section>
+      </div>
 
-      <footer class="tests-footer">
-        <section class="test-confirmation" aria-labelledby="testConfirmationTitle">
-          <h3 id="testConfirmationTitle">Conferência e confirmação do técnico</h3>
-          <p>Revise todos os resultados. A confirmação registra o nome informado pelo técnico e não exige senha.</p>
-          <div class="test-confirmation-fields">
-            <label>Técnico responsável<input id="testTechnician" maxlength="100" autocomplete="name" placeholder="Nome do técnico"></label>
-            <label>Serial do equipamento<input id="testEquipmentSerial" readonly></label>
-          </div>
-          <label>Observações gerais dos testes<textarea id="testGeneralNotes" rows="2" maxlength="2000" placeholder="Detalhes adicionais observados durante os testes"></textarea></label>
-          <label class="test-attestation"><input id="testAttestation" type="checkbox">Confirmo que realizei os testes indicados, identifiquei os itens que não se aplicam e descrevi corretamente as falhas e os itens não testados.</label>
-          <label id="testConfirmationInstruction" for="testConfirmationWord">Digite APROVADO para confirmar os resultados.</label>
-          <div class="test-confirmation-entry"><input id="testConfirmationWord" autocomplete="off" spellcheck="false" placeholder="APROVADO"><button type="button" id="confirmHardwareTests" class="primary">Confirmar relatório</button></div>
-          <p id="testConfirmationStatus" role="status"></p>
-          <details><summary>Relatórios locais confirmados</summary><ul id="testConfirmationHistory"></ul></details>
-        </section>
-        <div class="tests-report"><div class="tests-report-heading"><h3>Resultado dos testes</h3><strong id="testsReport" aria-live="polite">Aguardando testes</strong></div><ul id="testsReportDetails" aria-label="Resultado de cada teste"></ul><small id="testsActionStatus" aria-live="polite"></small></div>
-        <div class="tests-footer-actions">
-          <button type="button" class="secondary" id="resetTests">Limpar resultados</button>
-          <button type="button" class="secondary" id="copyTestsReport">Copiar relatório</button>
+      <footer class="tests-action-bar" id="testActionBar">
+        <p id="activeTestBlockers" role="status"></p>
+        <div class="active-test-buttons">
+          <button type="button" class="secondary" id="skipActiveTest">Pular etapa</button>
+          <button type="button" class="active-test-fail" id="failAndNextTest">Reprovado e próximo</button>
+          <button type="button" class="active-test-pass" id="passAndNextTest">Aprovado e próximo</button>
+          <button type="button" id="confirmHardwareTests" class="primary hidden">Confirmar relatório</button>
           <button type="button" class="primary hidden" id="finishTests">Concluir e voltar</button>
         </div>
       </footer>

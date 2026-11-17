@@ -39,4 +39,16 @@ assert.equal(ui.testRailState('usb'), 'not_applicable');
 assert.deepEqual(ui.testBlockers('audio').map(b => b.reason), ['evidence']);
 set('audio.speakers', { evidence: { source: 'auto', detail: 'Tom reproduzido nos lados esquerdo e direito', at: '2026-11-16T12:00:00Z' } });
 assert.deepEqual(ui.testBlockers('audio').map(b => b.reason), ['pending']);
+
+// Task 2: lista lateral
+uiState.testChecklist = items(); uiState.activeTest = 'usb';
+set('usb.inventory', { result: 'passed' });
+ui.renderTestRail();
+const rail = elements.testRail.innerHTML;
+assert.match(rail, /data-state="incomplete" aria-current="step"><button type="button" data-rail-test="usb"/);
+assert.match(rail, /Falta 2/);
+assert.equal((rail.match(/data-rail-test="/g) || []).length, 10, 'nove testes e a revisão');
+assert.match(rail, /data-rail-test="review"/);
+assert.match(rail, /data-state="pending"><button type="button" data-rail-test="camera"/);
+
 console.log('PASS: estado da lista lateral e pendencias por teste.');

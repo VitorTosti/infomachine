@@ -97,8 +97,8 @@ $checks = @(
     @($app, 'function syncCompletedTestsToRecord(pending)'),
     @($html, 'id="finishTests"'),
     @($html, 'id="testsCompletion"'),
-    @($html, 'class="tests-overview" aria-label="Resumo dos testes"'),
-    @($html, 'class="test-list-head"'),
+    @($html, 'id="testRail"'),
+    @($html, 'id="testActionBar"'),
     @($app, 'caij:last-print'),
     @($app, 'caij:print-history'),
     @($portable, 'automaticObservation'),
@@ -247,7 +247,7 @@ if (-not ($app.Contains('window.scrollTo({ top: 0, behavior: "smooth" })'))) {
 if (-not ($html -match 'id="statusLine" hidden')) {
     throw 'A linha de status nao deve ficar visivel na interface principal.'
 }
-if (-not ($html -match 'id="skipActiveTest"[\s\S]*id="failAndNextTest"[\s\S]*id="passAndNextTest"[\s\S]*id="activeTestBody"') -or
+if (-not ($html -match 'id="activeTestBody"[\s\S]*id="testActionBar"[\s\S]*id="skipActiveTest"[\s\S]*id="failAndNextTest"[\s\S]*id="passAndNextTest"') -or
     -not ($app -match 'function\s+completeActiveTest[\s\S]*await openTest\(nextTest\)')) {
     throw 'O teste aberto deve permitir registrar o resultado e avancar pela sequencia sem voltar para a lista.'
 }
@@ -308,7 +308,7 @@ if (-not ($html.Contains('id="testConfirmationWord"')) -or -not ($html.Contains(
     -not ($app.Contains('validTestSignature()')) -or -not ($html.Contains('src="test-checklist.js"'))) {
     throw 'A Central de Testes deve carregar o checklist e exigir confirmacao explicita do tecnico.'
 }
-if (-not ($style -match '\.tests-page \.test-row\.passed[\s\S]*\.tests-page \.test-row\.failed[\s\S]*\.test-actions button\[data-action="pass"\]\.selected')) {
+if (-not ($style -match '#testRail li\[data-state=passed\][\s\S]*#testRail li\[data-state=failed\]')) {
     throw 'A Central de Testes deve diferenciar visualmente estados pendente, aprovado e reprovado.'
 }
 if (-not ($preview.Contains("'--auto-accept-camera-and-microphone-capture'")) -or
