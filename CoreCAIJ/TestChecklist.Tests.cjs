@@ -5,13 +5,19 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const evidenceDetails = { 'audio.speakers': 'Tom reproduzido nos lados esquerdo e direito', 'trackpad.movement': '20 movimentos detectados na área de teste', 'trackpad.buttons': 'Cliques detectados: esquerdo 1, direito 1', 'charger.connectors': 'Alimentação mudou de bateria para tomada após reconectar o carregador', 'network.ethernet': 'Interface ethernet conectada: Rede cabeada; IP 192.168.1.2', 'network.wifi': 'Interface wifi conectada: Wi-Fi; IP 192.168.1.3' };
 const complete = () => ({ technician: 'Vitor', serial: 'QA-CHECK-001', mode: 'APROVADO', notes: '',
-  items: checklist.createChecklist({ usbPorts: ['USB esquerda', 'USB direita'] }).map(item => ({ ...item, result: 'passed', ...(evidenceDetails[item.id] ? { evidence: { source: 'auto', detail: evidenceDetails[item.id], at: '2026-11-16T12:00:00Z' } } : {}) })) });
+  items: checklist.createChecklist({ usbPorts: ['USB esquerda', 'USB direita'] }).map(item => ({ ...item, result: 'passed', ...(item.id.startsWith('usb.port-') ? { evidence: { source: 'auto', detail: `Dispositivo reconhecido em ${item.label}`, portKey: `USBROOT(0)#USB(${item.id.slice(-1)})`, at: '2026-11-16T12:00:00Z' } } : evidenceDetails[item.id] ? { evidence: { source: 'auto', detail: evidenceDetails[item.id], at: '2026-11-16T12:00:00Z' } } : {}) })) });
 const valid = data => checklist.validateConfirmation(data).ok;
 
 assert.equal(checklist.catalog.length, 9);
 assert.deepEqual(checklist.catalog.map(group => group.id), ['camera', 'keyboard', 'audio', 'screen', 'trackpad', 'usb', 'charger', 'network', 'hdmi']);
 assert.ok(checklist.createChecklist().every(item => item.result === 'pending'));
 assert.equal(valid(complete()), true);
+const usbWithoutLocation = complete();
+delete usbWithoutLocation.items.find(item => item.id === 'usb.port-1').evidence.portKey;
+assert.equal(valid(usbWithoutLocation), false, 'USB automático exige localização');
+const duplicatedUsbLocation = complete();
+duplicatedUsbLocation.items.find(item => item.id === 'usb.port-2').evidence.portKey = duplicatedUsbLocation.items.find(item => item.id === 'usb.port-1').evidence.portKey;
+assert.equal(valid(duplicatedUsbLocation), false, 'Uma localização não prova duas portas');
 const noAudioEvidence = complete(); delete noAudioEvidence.items.find(item => item.id === 'audio.speakers').evidence;
 assert.equal(valid(noAudioEvidence), false, 'Som aprovado exige reprodução registrada');
 for (const id of ['trackpad.movement', 'trackpad.buttons']) {

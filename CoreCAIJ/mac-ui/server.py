@@ -194,6 +194,7 @@ class AppState:
             required_ids = set(['camera.image', 'camera.capture', 'keyboard.keys', 'audio.speakers', 'screen.pixels', 'screen.artifacts', 'trackpad.movement', 'trackpad.buttons', 'usb.inventory', 'charger.connectors', 'charger.firmness', 'network.ethernet', 'network.wifi', 'hdmi.detection', 'hdmi.image'])
             ids = set()
             usb_ports = 0
+            seen_usb_port_keys = set()
             for item in items:
                 if not isinstance(item, dict) or not item.get("id") or item["id"] in ids:
                     raise ValueError("Identificador de item invalido ou repetido.")
@@ -209,6 +210,16 @@ class AppState:
                     raise ValueError("Item pendente ou invalido.")
                 if result in ("failed", "untested") and not str(item.get("notes") or "").strip():
                     raise ValueError("Justifique os itens com ressalvas.")
+                if item["id"].startswith("usb.port-") and result == "passed":
+                    evidence = item.get("evidence") or {}
+                    if not isinstance(evidence, dict) or evidence.get("source") not in ("auto", "manual") or not str(evidence.get("detail") or "").strip():
+                        raise ValueError("Aprovacao da porta USB exige deteccao ou justificativa manual.")
+                    if evidence["source"] == "auto" and not str(evidence.get("portKey") or "").strip():
+                        raise ValueError("Deteccao USB sem identificacao da porta fisica.")
+                    if evidence["source"] == "auto":
+                        port_key = str(evidence["portKey"]).strip()
+                        if port_key in seen_usb_port_keys: raise ValueError("A mesma porta USB foi registrada mais de uma vez.")
+                        seen_usb_port_keys.add(port_key)
                 if item["id"] == "audio.speakers" and result == "passed":
                     evidence = item.get("evidence") or {}
                     if not isinstance(evidence, dict) or evidence.get("source") not in ("auto", "manual") or not str(evidence.get("detail") or "").strip():

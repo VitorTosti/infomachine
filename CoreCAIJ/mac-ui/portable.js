@@ -277,6 +277,13 @@
   }
 
   async function portableApi(path, body) {
+    if (path === "/api/usb-devices") {
+      if (!isWindows || !runtime.localBridgeUrl) throw new Error("Detecção USB indisponível neste modo. Use a confirmação manual justificada.");
+      const response = await fetchWithTimeout(`${runtime.localBridgeUrl}/usb-devices`, {}, 5000);
+      const data = await response.json();
+      if (!response.ok || !data.ok || !Array.isArray(data.devices)) throw new Error(data.message || "Não foi possível ler os dispositivos USB.");
+      return data;
+    }
     if (path === "/api/network-status") {
       if (!isWindows || !runtime.localBridgeUrl) throw new Error("Detecção de rede indisponível neste modo. Use a confirmação manual justificada.");
       const response = await fetchWithTimeout(`${runtime.localBridgeUrl}/network-status`, {}, 3000);

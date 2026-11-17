@@ -264,6 +264,32 @@ function Send-LocalJsonResponse {
     Send-LocalBytesResponse -Client $Client -StatusCode $StatusCode -Bytes ([Text.Encoding]::UTF8.GetBytes($json)) -ContentType 'application/json; charset=utf-8'
 }
 
+function Get-LocalUsbDevices {
+    # Apenas dispositivos presentes cujo identificador USB possui VID/PID. Hubs internos
+    # nao servem como prova de que o tecnico conectou algo na porta externa.
+    $entities = @(Get-CimInstance -ClassName Win32_PnPEntity -Filter "PNPDeviceID LIKE 'USB%'" -ErrorAction Stop)
+    $devices = @($entities | Where-Object {
+        $_.ConfigManagerErrorCode -eq 0 -and
+        [string]$_.PNPDeviceID -match '^USB\\VID_[0-9A-F]{4}&PID_[0-9A-F]{4}' -and
+        ([string]$_.Name + ' ' + [string]$_.PNPDeviceID) -notmatch '(?i)\b(?:root|generic|super.?speed)?\s*hub\b|ROOT_HUB'
+    } | ForEach-Object {
+        $instanceId = [string]$_.PNPDeviceID
+        $locationPath = ''
+        try {
+            $property = Get-PnpDeviceProperty -InstanceId $instanceId -KeyName 'DEVPKEY_Device_LocationPaths' -ErrorAction Stop
+            $locationPath = @($property.Data | Where-Object { [string]$_ -match '(?i)USBROOT\([^)]*\)#USB\(\d+\)' } | Select-Object -First 1)[0]
+            $locationPath = [string]$locationPath
+        } catch { $locationPath = '' }
+        [pscustomobject]@{
+            instanceId = $instanceId
+            name = [string]$_.Name
+            locationPath = $locationPath
+            portKey = $locationPath
+        }
+    })
+    return $devices
+}
+
 function Get-LocalTestRecordsPath {
     Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CAIJ\Testes\registros.json'
 }
@@ -289,6 +315,7 @@ function Save-LocalTestRecord {
     $requiredIds = @('camera.image','camera.capture','keyboard.keys','audio.speakers','screen.pixels','screen.artifacts','trackpad.movement','trackpad.buttons','usb.inventory','charger.connectors','charger.firmness','network.ethernet','network.wifi','hdmi.detection','hdmi.image')
     $ids = @{}
     $usbPorts = 0
+    $seenUsbPortKeys = @{}
     foreach ($item in $items) {
         if (-not $item.id -or $ids.ContainsKey([string]$item.id)) { throw 'Identificador de item invalido ou repetido.' }
         $ids[[string]$item.id] = $true
@@ -300,6 +327,15 @@ function Save-LocalTestRecord {
         }
         if ($item.result -notin @('passed','failed','untested','not_applicable')) { throw 'Item pendente ou invalido.' }
         if ($item.result -in @('failed','untested') -and [string]::IsNullOrWhiteSpace([string]$item.notes)) { throw 'Justifique os itens com ressalvas.' }
+        if ([string]$item.id -match '^usb\.port-[1-9]\d*$' -and $item.result -eq 'passed') {
+            if ($item.evidence.source -notin @('auto','manual') -or [string]::IsNullOrWhiteSpace([string]$item.evidence.detail)) { throw 'Aprovacao da porta USB exige deteccao ou justificativa manual.' }
+            if ($item.evidence.source -eq 'auto' -and [string]::IsNullOrWhiteSpace([string]$item.evidence.portKey)) { throw 'Deteccao USB sem identificacao da porta fisica.' }
+            if ($item.evidence.source -eq 'auto') {
+                $portKey = ([string]$item.evidence.portKey).Trim()
+                if ($seenUsbPortKeys.ContainsKey($portKey)) { throw 'A mesma porta USB foi registrada mais de uma vez.' }
+                $seenUsbPortKeys[$portKey] = $true
+            }
+        }
         if ($item.id -eq 'audio.speakers' -and $item.result -eq 'passed') {
             if ($item.evidence.source -notin @('auto','manual') -or [string]::IsNullOrWhiteSpace([string]$item.evidence.detail)) { throw 'Aprovacao do som exige evidencia de reproducao ou justificativa manual.' }
             if ($item.evidence.source -eq 'auto' -and $item.evidence.detail -notmatch 'esquerdo e direito') { throw 'Teste automatico de som exige os dois lados.' }
@@ -680,6 +716,9 @@ try {
                 } catch { Send-LocalJsonResponse -Client $client -StatusCode 400 -Body @{ ok=$false; message=$_.Exception.Message } }
             } elseif ($requestLine -match '^POST\s+/3utools(?:\?|\s)') {
                 try { Send-LocalJsonResponse -Client $client -StatusCode 200 -Body @{ ok=$true; device=(Get-Windows3uToolsInfo) } }
+                catch { Send-LocalJsonResponse -Client $client -StatusCode 500 -Body @{ ok=$false; message=$_.Exception.Message } }
+            } elseif ($requestLine -match '^GET\s+/usb-devices(?:\?|\s)') {
+                try { Send-LocalJsonResponse -Client $client -StatusCode 200 -Body @{ ok=$true; devices=@(Get-LocalUsbDevices) } }
                 catch { Send-LocalJsonResponse -Client $client -StatusCode 500 -Body @{ ok=$false; message=$_.Exception.Message } }
             } elseif ($requestLine -match '^GET\s+/power-status(?:\?|\s)') {
                 try {

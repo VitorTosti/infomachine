@@ -6092,6 +6092,27 @@ body:has(#testsView:not(.hidden)), .app-shell:has(#testsView:not(.hidden)) { min
 #testsView #testPanel { display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; min-height: 0; padding: 16px 20px 12px; }
 #testsView #testPanel:has(#activeTestBody:empty) { grid-template-rows: auto auto 0 minmax(0, 1fr); }
 #testsView #activeTestBody { min-height: 0; overflow: auto; }
+.network-step { display: grid; gap: 16px; max-width: 900px; margin: 4px auto 18px; padding: 20px; border: 1px solid #36546a; border-radius: 14px; background: #10253a; }
+.usb-detection-guide { display: grid; gap: 12px; max-width: 900px; margin: 4px auto 18px; }
+.usb-detection-guide h4, .usb-detection-guide p { margin: 0; }
+.usb-detection-guide label { font-weight: 700; }
+.usb-detection-guide select { min-height: 44px; width: min(100%, 420px); }
+.usb-detection-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.usb-detection-actions button { min-height: 44px; }
+.network-step-head > span { color: #79ddc0; font-size: 11px; font-weight: 800; letter-spacing: .08em; }
+.network-step-head h4 { margin: 5px 0; font-size: 24px; }
+.network-step-head p, .network-step-reading p, .network-step-decisions p { margin: 0; color: #afc6d6; line-height: 1.5; }
+.network-step-reading { display: flex; align-items: center; gap: 16px; padding: 16px; border: 1px solid #32566b; border-radius: 10px; background: #0c1c2e; }
+.network-step-reading button { flex: 0 0 auto; min-height: 44px; }
+.network-step-decisions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.network-step-decisions p { grid-column: 1 / -1; margin-bottom: 4px; }
+.network-step-decisions button { min-height: 46px; padding: 8px 12px; font-weight: 700; }
+.network-step-decisions button[data-network-result="passed"] { color: #092b24; background: #75dfb7; }
+.network-step-decisions button[data-network-result="failed"] { color: #ffc0ca; border: 1px solid #974e64; background: #302133; }
+.network-step-decisions button:disabled { opacity: .45; cursor: not-allowed; }
+.network-step-nav { display: flex; justify-content: space-between; gap: 10px; padding-top: 8px; border-top: 1px solid #325066; }
+.network-step-nav button:last-child { margin-left: auto; }
+@media (max-width: 1100px) { .network-step-reading { align-items: stretch; flex-direction: column; } .network-step-decisions { grid-template-columns: 1fr; } }
 #testsView .hardware-checklist { max-height: 44vh; margin-top: 12px; padding-top: 10px; overflow-y: auto; }
 #testsView #testPanel:has(#activeTestBody:empty) .hardware-checklist { max-height: none; margin-top: 0; }
 #testsView #testReviewPanel { min-height: 0; padding: 16px 20px; overflow-y: auto; }

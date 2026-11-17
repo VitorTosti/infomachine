@@ -14,6 +14,7 @@ async function scenario(test, pendingReads) {
       classList: { add() {}, remove() {} },
       addEventListener(name, callback) { listeners[id + ':' + name] = callback; },
       insertAdjacentHTML() {},
+      querySelectorAll() { return []; },
       contains(child) { return !this.removed && child === elements.get(test === 'network' ? 'networkStatus' : 'powerStatus'); },
       scrollIntoView() {},
     });
@@ -24,6 +25,7 @@ async function scenario(test, pendingReads) {
   let invalidations = 0;
   const context = vm.createContext({
     state, qs: element, testLabels: { network: 'Rede', charger: 'Carregador' }, isWindowsPreview: true,
+    escapeHtml: value => String(value),
     stopActiveTest() {}, renderHardwareChecklist() {}, renderActiveTestNavigation() {}, renderTests() {},
     invalidateTestConfirmation() { invalidations++; },
     api() { return new Promise((resolve, reject) => pendingReads.push({ resolve, reject })); },

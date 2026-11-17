@@ -53,6 +53,7 @@
     const expectedGroups = new Map(catalog.flatMap((test) => test.items.map((item) => [item.id, test.id])));
     const validGroups = new Set(catalog.map((test) => test.id));
     let usbPortCount = 0;
+    const usbLocations = new Set();
     for (const item of items) {
       if (!item || typeof item !== "object") { errors.push("Item de verificação inválido."); continue; }
       if (!item.id || ids.has(item.id)) errors.push("Há itens sem identificador ou com identificador repetido.");
@@ -67,6 +68,14 @@
       }
       if (!results.includes(item.result)) errors.push(`Resultado inválido: ${item.label || item.id}.`);
       if (["failed", "untested"].includes(item.result) && !String(item.notes || "").trim()) errors.push(`Justifique o resultado de ${item.label || item.id}.`);
+      if (/^usb\.port-[1-9]\d*$/.test(String(item.id)) && item.result === "passed") {
+        const evidence = item.evidence;
+        if (!evidence || !["auto", "manual"].includes(evidence.source) || !String(evidence.detail || "").trim() || (evidence.source === "auto" && !String(evidence.portKey || "").trim())) errors.push(`Detecte ${item.label} ou justifique a confirmação manual.`);
+        if (evidence?.source === "auto" && evidence.portKey) {
+          if (usbLocations.has(evidence.portKey)) errors.push(`A localização de ${item.label} já foi usada em outra porta.`);
+          usbLocations.add(evidence.portKey);
+        }
+      }
       if (item.id === "audio.speakers" && item.result === "passed" &&
           (!item.evidence || !["auto", "manual"].includes(item.evidence.source) ||
            !String(item.evidence.detail || "").trim() ||

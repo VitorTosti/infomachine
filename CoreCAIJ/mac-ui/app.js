@@ -1143,10 +1143,11 @@ function deriveChecklistResults() {
 }
 
 const evidenceRequiredItems = ["audio.speakers", "trackpad.movement", "trackpad.buttons", "charger.connectors", "network.ethernet", "network.wifi"];
+const requiresItemEvidence = (id) => evidenceRequiredItems.includes(id) || /^usb\.port-[1-9]\d*$/.test(id);
 
 function testBlockers(test) {
   return state.testChecklist.filter((item) => item.testId === test).flatMap((item) => {
-    const reason = item.result === "pending" ? (evidenceRequiredItems.includes(item.id) && !item.evidence ? "evidence" : "pending")
+    const reason = item.result === "pending" ? (requiresItemEvidence(item.id) && !item.evidence ? "evidence" : "pending")
       : ["failed", "untested"].includes(item.result) && !String(item.notes || "").trim() ? "justification" : "";
     return reason ? [{ id: item.id, label: item.label, reason }] : [];
   });
@@ -1213,7 +1214,7 @@ function renderHardwareChecklist() {
     const addNote = showNote ? "" : `<button type="button" class="hardware-check-add-note" data-note-open="${item.id}">+ observação</button>`;
     const resultButton = (result, text) => `<button type="button" class="check-result-button check-result-${result}" data-check-result="${item.id}" data-check-value="${result}" aria-pressed="${item.result === result}">${text || escapeHtml(window.CAIJ_TEST_CHECKLIST.resultLabels[result])}</button>`;
     const choices = `<fieldset class="check-result-options"><legend>Resultado: ${escapeHtml(item.label)}</legend>${resultButton("passed", '<span aria-hidden="true">✓</span> Aprovado')}${resultButton("failed", '<span aria-hidden="true">✕</span> Reprovado')}${resultButton("not_applicable")}${resultButton("untested")}</fieldset>`;
-    const requiresEvidence = evidenceRequiredItems.includes(item.id);
+    const requiresEvidence = requiresItemEvidence(item.id);
     const evidenceView = requiresEvidence ? `<p class="hardware-check-evidence">${item.evidence ? `${item.evidence.source === "manual" ? "Verificação manual" : "Detecção registrada"}: ${escapeHtml(item.evidence.detail)}` : "Aguardando detecção automática."}</p>${item.evidence?.source === "auto" ? "" : `<button type="button" class="secondary hardware-check-manual" data-evidence-manual="${item.id}">${item.evidence?.source === "manual" ? "Alterar justificativa manual" : "Detecção falhou? Registrar verificação manual"}</button>`}` : "";
     const note = showNote ? `<label class="hardware-check-note" for="note-${item.id}">${exception ? "Justificativa obrigatória" : "Observação (opcional)"}<input id="note-${item.id}" data-check-note="${item.id}" maxlength="500" value="${escapeHtml(item.notes)}"${exception ? " required" : ""} placeholder="${exception ? "Descreva o defeito ou o motivo de não ter testado" : "Detalhe observado"}"></label>` : "";
     return `<article class="hardware-check-item hardware-check-compact" data-result="${item.result}"${blocked.has(item.id) ? ` data-blocked="${blocked.get(item.id)}"` : ""}><div class="hardware-check-identity"><span class="hardware-check-label">${escapeHtml(item.label)}</span>${removable}${addNote}${evidenceView}</div>${choices}${note}</article>`;
@@ -1399,6 +1400,8 @@ function stopActiveTest() {
   state.audioContext = null;
   if (state.toneContext) state.toneContext.close().catch(() => {});
   state.toneContext = null;
+  state.networkPollCleanup?.();
+  state.networkPollCleanup = null;
   if (state.keyboardHandler) {
     document.removeEventListener("keydown", state.keyboardHandler, true);
     document.removeEventListener("keyup", state.keyboardHandler, true);
@@ -2040,6 +2043,52 @@ function openTrackpadTest() {
   zone.addEventListener("wheel", (event) => { event.preventDefault(); updateMetric("trackScrolls", ++scrolls); }, { passive: false });
 }
 
+function openUsbTest() {
+  qs("activeTestBody").innerHTML = '<div class="connector-test-guide usb-detection-guide"><h4>Verificação por porta USB</h4><p>Retire o dispositivo de teste, faça a leitura inicial e conecte-o em uma porta por vez. A detecção registra reconhecimento; confirme o funcionamento no checklist.</p><label for="usbPortTarget">Porta física testada</label><select id="usbPortTarget"></select><div class="usb-detection-actions"><button type="button" id="usbBaseline">1. Ler sem o dispositivo</button><button type="button" id="usbDetect">2. Detectar após conectar</button></div><p id="usbDetectionStatus" role="status">Aguardando leitura inicial. Se o Windows não informar a localização, use a verificação manual justificada no checklist.</p></div>';
+  const checklist = state.testChecklist;
+  const serial = String(state.info.serial || "").trim();
+  const panel = qs("activeTestBody");
+  const status = qs("usbDetectionStatus");
+  const target = qs("usbPortTarget");
+  const current = () => state.activeTest === "usb" && state.testChecklist === checklist && state.testSessionSerial === serial && String(state.info.serial || "").trim() === serial && panel.contains(status);
+  const refreshPorts = () => {
+    const selected = target.value;
+    target.innerHTML = checklist.filter((item) => item.id.startsWith("usb.port-")).map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.label)}</option>`).join("");
+    if (selected && [...target.options].some((option) => option.value === selected)) target.value = selected;
+  };
+  refreshPorts();
+  let baseline = null;
+  qs("usbBaseline").addEventListener("click", async () => {
+    try {
+      const reading = await api("/api/usb-devices");
+      if (!current()) return;
+      baseline = Array.isArray(reading.devices) ? reading.devices : [];
+      status.textContent = `Leitura inicial concluída (${baseline.length} dispositivos USB). Conecte o dispositivo na porta selecionada e detecte novamente.`;
+    } catch (error) { if (current()) status.textContent = `Leitura indisponível: ${error.message}. Use verificação manual justificada.`; }
+  });
+  qs("usbDetect").addEventListener("click", async () => {
+    if (!baseline) { status.textContent = "Faça primeiro a leitura sem o dispositivo de teste."; return; }
+    const targetId = target.value;
+    try {
+      const reading = await api("/api/usb-devices");
+      if (!current()) return;
+      const before = new Set(baseline.map((device) => `${device.instanceId}|${device.portKey}`));
+      const added = (reading.devices || []).filter((device) => device.instanceId && device.portKey && !before.has(`${device.instanceId}|${device.portKey}`));
+      const newLocations = new Set(added.map((device) => device.portKey));
+      if (newLocations.size !== 1) { status.textContent = newLocations.size ? "Dispositivos apareceram em mais de uma localização. Desconecte os outros e repita a leitura inicial." : "Nenhum dispositivo novo com localização física foi detectado. Repita ou registre a verificação manual justificada."; return; }
+      const device = added[0];
+      if (checklist.some((item) => item.id !== targetId && item.evidence?.source === "auto" && item.evidence.portKey === device.portKey)) { status.textContent = "Esta localização já foi usada em outra porta. Escolha a porta correta ou repita a leitura."; return; }
+      const item = checklist.find((entry) => entry.id === targetId);
+      if (!item) { refreshPorts(); status.textContent = "Selecione uma porta da lista e tente novamente."; return; }
+      invalidateTestConfirmation();
+      item.evidence = { source: "auto", detail: `${device.name || "Dispositivo USB"} reconhecido na localização ${device.portKey}`, portKey: device.portKey, at: new Date().toISOString() };
+      status.textContent = `${item.label}: dispositivo reconhecido. Confirme no checklist se a porta funcionou.`;
+      renderHardwareChecklist(); renderTests();
+    } catch (error) { if (current()) status.textContent = `Detecção indisponível: ${error.message}. Use verificação manual justificada.`; }
+  });
+  return refreshPorts;
+}
+
 async function openTest(test) {
   stopActiveTest();
   state.activeTest = test;
@@ -2071,6 +2120,7 @@ async function openTest(test) {
     openScreenTest();
   }
   if (test === "trackpad") openTrackpadTest();
+  if (test === "usb") openUsbTest();
   if (["usb", "charger", "network", "hdmi"].includes(test)) qs("activeTestHelp").textContent = { usb: "Use um dispositivo USB conhecido em cada porta. Confira reconhecimento e uso; diferencie USB-A, USB-C e posição. Use +1 USB ou +1 USB-C para incluir as demais portas.", charger: "Teste cada conector de carregamento disponível no equipamento. Confira se todos funcionam e se os encaixes estão firmes, sem folga.", network: "Teste Ethernet e Wi-Fi separadamente. Anote conexão, acesso à rede local e à internet. A falta de internet deve ser diferenciada de defeito no adaptador.", hdmi: "Conecte um cabo HDMI e confira se a saída funciona e mantém a imagem estável. Anote eventual falha ou adaptador utilizado." }[test];
   if (test === "charger") {
     let disconnected = false;
@@ -2097,34 +2147,62 @@ async function openTest(test) {
     });
   }
   if (test === "network") {
-    qs("activeTestBody").innerHTML = '<div class="connector-test-guide"><p>Conecte Ethernet e Wi-Fi separadamente. A leitura identifica a interface ativa e o IP; confirme também o acesso à rede no checklist.</p><button type="button" id="detectNetwork">Detectar conexões</button><p id="networkStatus" role="status">Aguardando leitura.</p></div>';
     const checklist = state.testChecklist;
     const serial = String(state.info.serial || "").trim();
     const panel = qs("activeTestBody");
-    const status = qs("networkStatus");
-    const isCurrent = () => state.activeTest === "network" && state.testChecklist === checklist && state.testSessionSerial === serial && String(state.info.serial || "").trim() === serial && panel.contains(status);
-    qs("detectNetwork").addEventListener("click", async () => {
-      const button = qs("detectNetwork"); button.disabled = true;
-      try {
-        const reading = await api("/api/network-status");
-        if (!isCurrent()) return;
-        const lines = [];
-        for (const kind of ["ethernet", "wifi"]) {
+    let stage = 0;
+    let pollTimer = null;
+    const kinds = ["ethernet", "wifi"];
+    const names = ["Ethernet", "Wi-Fi"];
+    const currentItem = () => checklist.find((entry) => entry.id === `network.${kinds[stage]}`);
+    const isCurrent = (element) => state.activeTest === "network" && state.testChecklist === checklist && state.testSessionSerial === serial && String(state.info.serial || "").trim() === serial && panel.contains(element);
+    const drawStage = (message = "") => {
+      if (pollTimer) clearInterval(pollTimer);
+      const kind = kinds[stage], name = names[stage], item = currentItem();
+      const detected = item?.evidence?.source === "auto" && item.evidence.detail.startsWith(`Interface ${kind} conectada:`);
+      panel.innerHTML = `<section class="network-step" aria-labelledby="networkStepTitle"><div class="network-step-head"><span>ETAPA ${stage + 1} DE 2</span><h4 id="networkStepTitle">${stage === 0 ? "Conecte o cabo de rede" : "Conecte-se ao Wi-Fi"}</h4><p>${stage === 0 ? "Conecte um cabo Ethernet e aguarde o Windows obter um endereço de rede." : "Selecione a rede sem fio no Windows e aguarde a conexão."}</p></div><div class="network-step-reading"><button type="button" id="detectNetwork">Verificar ${name}</button><p id="networkStatus" role="status">${escapeHtml(message || (detected ? `Conexão verificada: ${item.evidence.detail}. Confirme se conseguiu acessar a rede.` : "Aguardando leitura automática."))}</p></div><div class="network-step-decisions"><p>A conexão foi testada e funcionou?</p><button type="button" data-network-result="passed" ${detected || item?.evidence?.source === "manual" ? "" : "disabled"}>Aprovado</button><button type="button" data-network-result="failed">Reprovado</button><button type="button" data-network-result="not_applicable">Esta máquina não possui ${name}</button></div><div class="network-step-nav">${stage ? '<button type="button" data-network-stage="previous" class="secondary">← Ethernet</button>' : ""}<button type="button" data-network-stage="next" class="secondary" ${stage === 0 ? "" : "disabled"}>${stage === 0 ? "Próxima etapa: Wi-Fi →" : "Etapas de rede concluídas"}</button></div></section>`;
+      const status = qs("networkStatus");
+      qs("detectNetwork").addEventListener("click", async () => {
+        const button = qs("detectNetwork"); button.disabled = true;
+        try {
+          const reading = await api("/api/network-status");
+          if (!isCurrent(status) || kinds[stage] !== kind) return;
           const connected = (reading.interfaces || []).find((entry) => entry.kind === kind && entry.connected);
-          lines.push(`${kind === "wifi" ? "Wi-Fi" : "Ethernet"}: ${connected ? `${connected.name} · IP ${connected.ip}` : "sem conexão detectada"}`);
-          const item = state.testChecklist.find((entry) => entry.id === `network.${kind}`);
-          if (connected) {
-            if (item) { invalidateTestConfirmation(); item.evidence = { source: "auto", detail: `Interface ${kind} conectada: ${connected.name}; IP ${connected.ip}`, at: new Date().toISOString() }; }
-          } else if (item?.evidence?.source === "auto") {
-            invalidateTestConfirmation(); delete item.evidence;
-            if (item.result === "passed") item.result = "pending";
+          if (!connected) {
+            if (item?.evidence?.source === "auto") { invalidateTestConfirmation(); delete item.evidence; if (item.result === "passed") item.result = "pending"; renderHardwareChecklist(); renderTests(); }
+            drawStage(`${name} sem conexão detectada. Confira o cabo, a rede e o adaptador; você pode registrar uma verificação manual no checklist.`);
+            return;
           }
+          invalidateTestConfirmation();
+          item.evidence = { source: "auto", detail: `Interface ${kind} conectada: ${connected.name}; IP ${connected.ip}`, at: new Date().toISOString() };
+          renderHardwareChecklist(); renderTests();
+          drawStage(`${name} verificado: ${connected.name} · IP ${connected.ip}. Confirme o acesso observado antes de aprovar.`);
+        } catch (error) { if (isCurrent(status)) { status.textContent = `${error.message} Se funciona, registre a verificação manual com justificativa no checklist.`; button.disabled = false; } }
+      });
+      panel.querySelectorAll("[data-network-result]").forEach((button) => button.addEventListener("click", () => {
+        const result = button.dataset.networkResult;
+        if (result === "passed" && !item.evidence) return;
+        if (result === "failed") {
+          const reason = window.prompt(`Descreva o defeito observado em ${name}:`, item.notes || "");
+          if (!reason?.trim()) { status.textContent = "Descreva o defeito para registrar a reprovação."; return; }
+          item.notes = reason.trim();
         }
-        status.textContent = `${lines.join(" | ")}. Confirme o acesso observado no checklist.`;
+        if (result === "not_applicable") { item.notes = `Equipamento sem interface ${name}, conforme verificação do técnico.`; delete item.evidence; }
+        invalidateTestConfirmation(); item.result = result;
         renderHardwareChecklist(); renderTests();
-      } catch (error) { if (isCurrent()) status.textContent = `${error.message} Se a conexão funciona, registre a verificação manual com justificativa.`; }
-      finally { if (isCurrent()) button.disabled = false; }
-    });
+        drawStage(`${name}: ${window.CAIJ_TEST_CHECKLIST.resultLabels[result]}. ${stage === 0 ? "Avance para o Wi-Fi." : "Revise o checklist antes de confirmar o relatório."}`);
+      }));
+      panel.querySelectorAll("[data-network-stage]").forEach((button) => button.addEventListener("click", () => { stage = button.dataset.networkStage === "next" ? 1 : 0; drawStage(); }));
+      if (typeof setInterval === "function" && item?.result === "pending" && !item.evidence) {
+        pollTimer = setInterval(() => {
+          if (!isCurrent(status)) { clearInterval(pollTimer); return; }
+          const button = qs("detectNetwork");
+          if (!button.disabled) button.click();
+        }, 2500);
+      }
+    };
+    state.networkPollCleanup = () => { if (pollTimer) clearInterval(pollTimer); };
+    drawStage();
   }
   qs("testWorkspace").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
@@ -2522,6 +2600,7 @@ function wireControls() {
       state.testChecklist = state.testChecklist.filter((entry) => entry.id !== removeId);
       state.testChecklist.find((entry) => entry.id === "usb.inventory").result = "pending";
       renderHardwareChecklist(); renderTests(); renderActiveTestNavigation();
+      if (state.activeTest === "usb") openUsbTest();
       return;
     }
     const noteId = event.target.closest("[data-note-open]")?.dataset.noteOpen;
@@ -2542,7 +2621,7 @@ function wireControls() {
     let result = target.dataset.checkValue;
     if (!item || !window.CAIJ_TEST_CHECKLIST.results.includes(result)) return;
     if (item.result === result) result = "pending";
-    if (evidenceRequiredItems.includes(id) && result === "passed" && !item.evidence) { qs("hardwareChecklistStatus").textContent = "Registre a detecção ou confirme manualmente com justificativa antes de aprovar."; return; }
+    if (requiresItemEvidence(id) && result === "passed" && !item.evidence) { qs("hardwareChecklistStatus").textContent = "Registre a detecção ou confirme manualmente com justificativa antes de aprovar."; return; }
     invalidateTestConfirmation();
     item.result = result;
     renderTests();
@@ -2570,6 +2649,7 @@ function wireControls() {
     state.testChecklist.push({ id: `usb.port-${nextId}`, testId: "usb", label: `${kind} ${nextNumber}`, result: "pending", notes: "" });
     state.testChecklist.find((item) => item.id === "usb.inventory").result = "pending";
     renderHardwareChecklist(); renderTests(); renderActiveTestNavigation();
+    if (state.activeTest === "usb") openUsbTest();
   });
   for (const id of ["testTechnician", "testGeneralNotes", "testEquipmentSerial"]) qs(id).addEventListener("input", () => { invalidateTestConfirmation(); renderTests(); });
   for (const id of ["testAttestation", "testConfirmationWord"]) qs(id).addEventListener("input", renderTestConfirmation);
