@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const checklist = require('./mac-ui/test-checklist.js');
 const clone = data => JSON.parse(JSON.stringify(data));
 const complete = () => ({ technician: 'Vitor', serial: 'QA-CHECK-001', mode: 'APROVADO', notes: '',
-  items: checklist.createChecklist({ usbPorts: ['USB esquerda', 'USB direita'] }).map(item => ({ ...item, result: 'passed', ...(item.id === 'audio.speakers' ? { evidence: { source: 'auto', detail: 'Tom reproduzido nos lados esquerdo e direito', at: '2026-11-16T12:00:00Z' } } : {}) })) });
+  items: checklist.createChecklist({ usbPorts: ['USB esquerda', 'USB direita'] }).map(item => ({ ...item, result: 'passed', ...({ 'audio.speakers': 'Tom reproduzido nos lados esquerdo e direito', 'trackpad.movement': '20 movimentos detectados na área de teste', 'trackpad.buttons': 'Cliques detectados: esquerdo 1, direito 1' }[item.id] ? { evidence: { source: 'auto', detail: { 'audio.speakers': 'Tom reproduzido nos lados esquerdo e direito', 'trackpad.movement': '20 movimentos detectados na área de teste', 'trackpad.buttons': 'Cliques detectados: esquerdo 1, direito 1' }[item.id], at: '2026-11-16T12:00:00Z' } } : {}) })) });
 const valid = data => checklist.validateConfirmation(data).ok;
 
 assert.equal(checklist.catalog.length, 9);
@@ -11,6 +11,12 @@ assert.ok(checklist.createChecklist().every(item => item.result === 'pending'));
 assert.equal(valid(complete()), true);
 const noAudioEvidence = complete(); delete noAudioEvidence.items.find(item => item.id === 'audio.speakers').evidence;
 assert.equal(valid(noAudioEvidence), false, 'Som aprovado exige reprodução registrada');
+for (const id of ['trackpad.movement', 'trackpad.buttons']) {
+  const missing = complete(); delete missing.items.find(item => item.id === id).evidence;
+  assert.equal(valid(missing), false, `${id} aprovado exige evidência`);
+  const manual = complete(); manual.items.find(item => item.id === id).evidence = { source: 'manual', detail: 'Testado fisicamente; navegador não detectou', at: '2026-11-16T12:00:00Z' };
+  assert.equal(valid(manual), true, `${id} aceita justificativa manual`);
+}
 const manualAudio = complete(); manualAudio.items.find(item => item.id === 'audio.speakers').evidence = { source: 'manual', detail: 'Saída testada pelo sistema operacional', at: '2026-11-16T12:00:00Z' };
 assert.equal(valid(manualAudio), true, 'Detecção falha permite justificativa manual');
 manualAudio.confirmedAt = '2026-11-16T12:00:00Z'; manualAudio.fingerprint = checklist.fingerprint(manualAudio);

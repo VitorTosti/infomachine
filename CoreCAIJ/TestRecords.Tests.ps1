@@ -9,6 +9,8 @@ foreach($name in @('Get-LocalTestRecordsPath','Read-LocalTestRecords','Save-Loca
 $ids='camera.image camera.capture keyboard.keys audio.speakers screen.pixels screen.artifacts trackpad.movement trackpad.buttons usb.inventory charger.connectors charger.firmness network.ethernet network.wifi hdmi.detection hdmi.image' -split ' '
 $record=[pscustomobject]@{technician=('T' + [char]0x00E9 + 'cnico');serial='ABC';items=@($ids | ForEach-Object {[pscustomobject]@{id=$_;testId=($_ -split '\.')[0];label=$_;result='passed';notes=''}});mode='APROVADO';confirmedAt='2026-11-12T12:00:00.000Z';fingerprint='snapshot';notes=('Observa' + [char]0x00E7 + [char]0x00E3 + 'o')}
 ($record.items | Where-Object id -eq 'audio.speakers') | Add-Member -NotePropertyName evidence -NotePropertyValue @{source='auto';detail='Tom reproduzido nos lados esquerdo e direito';at='2026-11-16T12:00:00Z'}
+($record.items | Where-Object id -eq 'trackpad.movement') | Add-Member -NotePropertyName evidence -NotePropertyValue @{source='auto';detail='20 movimentos detectados na area de teste';at='2026-11-16T12:00:00Z'}
+($record.items | Where-Object id -eq 'trackpad.buttons') | Add-Member -NotePropertyName evidence -NotePropertyValue @{source='auto';detail='Cliques detectados: esquerdo 1, direito 1';at='2026-11-16T12:00:00Z'}
 $path=Join-Path ([IO.Path]::GetTempPath()) ('caij-record-regression-'+[guid]::NewGuid().ToString('N')+'.json')
 $legacyPath=$path+'.legacy.json'
 try {

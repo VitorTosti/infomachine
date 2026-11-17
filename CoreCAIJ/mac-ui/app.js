@@ -1125,8 +1125,9 @@ function renderHardwareChecklist() {
     const identity = item.id.startsWith("usb.port-") ? `<label>Identificação da porta<input data-check-label="${item.id}" maxlength="80" value="${escapeHtml(item.label)}" aria-label="Nome da porta ${escapeHtml(item.label)}"></label>` : `<span class="hardware-check-label">${escapeHtml(item.label)}</span>`;
     const resultButton = (result, text) => `<button type="button" class="check-result-button check-result-${result}" data-check-result="${item.id}" data-check-value="${result}" aria-pressed="${item.result === result}">${text || escapeHtml(window.CAIJ_TEST_CHECKLIST.resultLabels[result])}</button>`;
     const choices = `<fieldset class="check-result-options"><legend>Resultado: ${escapeHtml(item.label)}</legend><div class="check-result-main">${resultButton("passed", '<span aria-hidden="true">✓</span> Aprovado')}${resultButton("failed", '<span aria-hidden="true">×</span> Reprovado')}</div><div class="check-result-exceptions">${resultButton("not_applicable")}${resultButton("untested")}${resultButton("pending", "Limpar")}</div></fieldset>`;
-    const audioEvidence = item.id === "audio.speakers" ? `<p>Reprodução: ${escapeHtml(item.evidence?.detail || "aguardando os dois lados")}</p><button type="button" data-audio-manual="true">Confirmar reprodução manualmente</button>` : "";
-    return `<article class="hardware-check-item" data-result="${item.result}">${identity}${audioEvidence}${choices}<label class="hardware-check-note" for="note-${item.id}">${exception ? "Justificativa obrigatória" : "Detalhe da verificação (opcional)"}<input id="note-${item.id}" data-check-note="${item.id}" maxlength="500" value="${escapeHtml(item.notes)}"${exception ? " required" : ""} placeholder="Descreva o comportamento observado ou o motivo da exceção"></label></article>`;
+    const requiresEvidence = ["audio.speakers", "trackpad.movement", "trackpad.buttons"].includes(item.id);
+    const evidenceView = requiresEvidence ? `<p>Evidência: ${escapeHtml(item.evidence?.detail || "aguardando detecção")}</p><button type="button" data-evidence-manual="${item.id}">Confirmar manualmente com justificativa</button>` : "";
+    return `<article class="hardware-check-item" data-result="${item.result}">${identity}${evidenceView}${choices}<label class="hardware-check-note" for="note-${item.id}">${exception ? "Justificativa obrigatória" : "Detalhe da verificação (opcional)"}<input id="note-${item.id}" data-check-note="${item.id}" maxlength="500" value="${escapeHtml(item.notes)}"${exception ? " required" : ""} placeholder="Descreva o comportamento observado ou o motivo da exceção"></label></article>`;
   }).join("");
   qs("usbPortTools").classList.toggle("hidden", test !== "usb");
   qs("hardwareChecklistStatus").textContent = ["usb", "charger", "network", "hdmi"].includes(test)
@@ -1847,6 +1848,14 @@ function openTrackpadTest() {
   let scrolls = 0;
   const clicks = [0, 0, 0];
   const clickIds = ["trackLeft", "trackMiddle", "trackRight"];
+  const recordEvidence = (id, detail) => {
+    const item = state.testChecklist.find((entry) => entry.id === id);
+    if (!item || item.evidence?.source === "auto") return;
+    invalidateTestConfirmation();
+    item.evidence = { source: "auto", detail, at: new Date().toISOString() };
+    renderHardwareChecklist();
+    renderTests();
+  };
   const updateMetric = (id, value) => {
     const metric = qs(id);
     metric.textContent = value;
@@ -1857,10 +1866,12 @@ function openTrackpadTest() {
     pointer.style.left = `${event.clientX - bounds.left}px`;
     pointer.style.top = `${event.clientY - bounds.top}px`;
     updateMetric("trackMoves", ++moves);
+    if (moves >= 20) recordEvidence("trackpad.movement", `${moves} movimentos detectados na área de teste`);
   });
   state.mouseButtonCleanup = listenForMouseButtons(qs("activeTestBody"), (button) => {
     updateMetric(clickIds[button], ++clicks[button]);
     qs("trackLastPointer").textContent = `Último clique: ${["esquerdo", "do meio", "direito"][button]} detectado`;
+    if (clicks[0] && clicks[2]) recordEvidence("trackpad.buttons", `Cliques detectados: esquerdo ${clicks[0]}, direito ${clicks[2]}`);
   });
   zone.addEventListener("wheel", (event) => { event.preventDefault(); updateMetric("trackScrolls", ++scrolls); }, { passive: false });
 }
@@ -2267,11 +2278,13 @@ function wireControls() {
     setStatus("Relatório confirmado e disponível para o cadastro do rastreador.", "ok");
   });
   qs("hardwareChecklistItems").addEventListener("click", (event) => {
-    if (event.target.closest("[data-audio-manual]")) {
-      const reason = window.prompt("Por que a reprodução automática não pôde ser registrada? Descreva como verificou o som.")?.trim();
-      if (!reason) { qs("hardwareChecklistStatus").textContent = "A confirmação manual do som exige justificativa."; return; }
-      const speaker = state.testChecklist.find((item) => item.id === "audio.speakers");
-      if (speaker) { invalidateTestConfirmation(); speaker.evidence = { source: "manual", detail: reason, at: new Date().toISOString() }; renderHardwareChecklist(); renderTests(); }
+    const manualId = event.target.closest("[data-evidence-manual]")?.dataset.evidenceManual;
+    if (manualId) {
+      const item = state.testChecklist.find((entry) => entry.id === manualId);
+      if (!item) return;
+      const reason = window.prompt(`Por que a detecção automática de ${item.label} falhou? Descreva como verificou o funcionamento.`)?.trim();
+      if (!reason) { qs("hardwareChecklistStatus").textContent = "A confirmação manual exige justificativa."; return; }
+      invalidateTestConfirmation(); item.evidence = { source: "manual", detail: reason, at: new Date().toISOString() }; renderHardwareChecklist(); renderTests();
       return;
     }
     const target = event.target.closest("button[data-check-result]");
@@ -2280,7 +2293,7 @@ function wireControls() {
     const item = state.testChecklist.find((entry) => entry.id === id);
     const result = target.dataset.checkValue;
     if (!item || !window.CAIJ_TEST_CHECKLIST.results.includes(result) || item.result === result) return;
-    if (id === "audio.speakers" && result === "passed" && !item.evidence) { qs("hardwareChecklistStatus").textContent = "Reproduza o tom nos dois lados ou confirme manualmente com justificativa antes de aprovar."; return; }
+    if (["audio.speakers", "trackpad.movement", "trackpad.buttons"].includes(id) && result === "passed" && !item.evidence) { qs("hardwareChecklistStatus").textContent = "Registre a detecção ou confirme manualmente com justificativa antes de aprovar."; return; }
     invalidateTestConfirmation();
     item.result = result;
     renderTests();

@@ -304,6 +304,11 @@ function Save-LocalTestRecord {
             if ($item.evidence.source -notin @('auto','manual') -or [string]::IsNullOrWhiteSpace([string]$item.evidence.detail)) { throw 'Aprovacao do som exige evidencia de reproducao ou justificativa manual.' }
             if ($item.evidence.source -eq 'auto' -and $item.evidence.detail -notmatch 'esquerdo e direito') { throw 'Teste automatico de som exige os dois lados.' }
         }
+        if ($item.id -in @('trackpad.movement','trackpad.buttons') -and $item.result -eq 'passed') {
+            if ($item.evidence.source -notin @('auto','manual') -or [string]::IsNullOrWhiteSpace([string]$item.evidence.detail)) { throw 'Aprovacao do touchpad exige deteccao ou justificativa manual.' }
+            if ($item.evidence.source -eq 'auto' -and $item.id -eq 'trackpad.movement' -and ([string]$item.evidence.detail -notmatch '^(\d+) movimentos detectados' -or [int]$Matches[1] -lt 20)) { throw 'Movimento insuficiente.' }
+            if ($item.evidence.source -eq 'auto' -and $item.id -eq 'trackpad.buttons' -and [string]$item.evidence.detail -notmatch 'esquerdo [1-9]\d*, direito [1-9]\d*') { throw 'Cliques esquerdo e direito obrigatorios.' }
+        }
         if ($Record.mode -eq 'APROVADO' -and $item.result -in @('failed','untested')) { throw 'Falha ou item nao testado impede aprovacao.' }
     }
     if ($usbPorts -gt 32 -or @($requiredIds | Where-Object { -not $ids.ContainsKey($_) }).Count) { throw 'Checklist incompleto ou portas USB invalidas.' }
