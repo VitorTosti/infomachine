@@ -46,7 +46,8 @@ assert.match(body.innerHTML, /data-key="FN"[^>]*>Fn<\/kbd><kbd[^>]*data-key="CON
 assert.match(body.innerHTML, /data-key="ALTRIGHT"[^>]*>ALT GR<\/kbd><kbd[^>]*data-key="PRINTSCREEN"[^>]*>Prt<br>Sc<\/kbd><kbd[^>]*data-key="INTLRO"[^>]*>\? \/ °<\/kbd><kbd[^>]*data-key="CONTROLRIGHT"/);
 assert.match(body.innerHTML, /data-key="FN"[^>]*data-manual-confirm="true"/);
 assert.match(body.innerHTML, /data-mouse-button="0"[\s\S]*data-mouse-button="1"[\s\S]*data-mouse-button="2"/);
-touchpadListeners.contextmenu({ button: 2, target: {}, preventDefault() {} });
+touchpadListeners.pointerdown({ type: 'pointerdown', button: 2, target: {}, preventDefault() {} });
+touchpadListeners.contextmenu({ type: 'contextmenu', button: 2, target: {}, preventDefault() {} });
 assert.equal(touchpadButton.classList.pressed, true);
 assert.match(lastPointer.textContent, /direito detectado/);
 assert.equal(context.normalizeKeyboardEvent({ code: 'AltRight', key: 'AltGraph' }), 'ALTRIGHT');
@@ -81,8 +82,12 @@ const trackpadContext = vm.createContext({ state: {}, qs: (id) => ({ activeTestB
 vm.runInContext(app.slice(app.indexOf('function listenForMouseButtons('), app.indexOf('function openKeyboardTest(')), trackpadContext);
 vm.runInContext(app.slice(app.indexOf('function openTrackpadTest('), app.indexOf('async function openTest(')), trackpadContext);
 trackpadContext.openTrackpadTest();
+bodyListeners.click({ type: 'click', detail: 0, preventDefault() {} });
+bodyListeners.contextmenu({ type: 'contextmenu', button: 2, preventDefault() {} });
+assert.equal(values.trackLeft.textContent, '0', 'Enter/espaço não conta como clique esquerdo');
+assert.equal(values.trackRight.textContent, '0', 'Menu/Shift+F10 não conta como clique direito');
 for (const [button, id] of [[0, 'trackLeft'], [1, 'trackMiddle'], [2, 'trackRight']]) {
-  bodyListeners.pointerdown({ button, preventDefault() {} });
+  bodyListeners.pointerdown({ type: 'pointerdown', button, preventDefault() {} });
   assert.equal(values[id].textContent, 1);
   assert.equal(values[id].parentElement.classList.observed, true);
 }

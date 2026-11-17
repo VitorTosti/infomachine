@@ -1523,8 +1523,12 @@ function normalizeKeyboardEvent(event) {
 function listenForMouseButtons(target, onButton, allowedButtons = [0, 1, 2]) {
   let lastButton = -1;
   let lastTime = 0;
+  let lastPhysicalRight = 0;
   const record = (event, button) => {
     if (!allowedButtons.includes(button)) return;
+    if (event.type === "click" && event.detail === 0) return;
+    if (event.type === "contextmenu" && Date.now() - lastPhysicalRight > 500) return;
+    if ((event.type === "pointerdown" || event.type === "mousedown") && button === 2) lastPhysicalRight = Date.now();
     event.preventDefault();
     const now = Date.now();
     if (lastButton === button && now - lastTime < 250) return;
