@@ -4,7 +4,7 @@ Data: 16/11/2026 · Branch: `VitorTosti/feat-orquestrar-equipe-qa` (PR #2)
 
 ## Objetivo da entrega
 
-Até sexta-feira, a triagem deve produzir resultados de hardware confiáveis e confirmados pelo técnico, uma avaliação estética guiada e um relatório único persistido na observação da OS/rastreador do AlterTag. A identificação existente de máquinas, serial e rastreador será reaproveitada e não será alterada.
+A triagem deve produzir resultados de hardware confiáveis e confirmados pelo técnico, uma avaliação estética guiada e um relatório único apresentado no envio já existente ao AlterTag. A identificação existente de máquinas, serial e rastreador será reaproveitada.
 
 O técnico executa, observa e confirma cada teste. Detecção automática é evidência de execução, nunca prova suficiente de que o componente funciona. Quando a detecção falhar, há confirmação manual com justificativa obrigatória, identificada no relatório.
 
@@ -86,7 +86,7 @@ Não usar média: um dano relevante não pode ser escondido por outras peças em
 
 Uma única estrutura de dados alimenta tela, persistência local, histórico e o gerador de relatório. Ela inclui itens de hardware, evidências, dados de configuração, avaliação de cada peça e marcações, versão da regra, grades sugerida e confirmada, justificativa de alteração, técnico e datas.
 
-Ao concluir, o relatório deve ser anexado à observação da OS/rastreador no AlterTag, inclusive se o rastreador já estiver cadastrado. Não pode criar outro rastreador nem alterar o status da OS. Cada envio preserva os registros anteriores, permitindo descobrir defeitos que continuam escapando. A interface só informa sucesso depois de confirmação de leitura/persistência no AlterTag.
+O relatório já é enviado ao AlterTag pelo fluxo atual. Esta frente muda a organização e a apresentação do texto enviado, inclusive no uso de rastreador já cadastrado, mantendo o mecanismo de envio e a identificação atuais. O histórico local dos registros permite acompanhar os defeitos que continuam escapando; a apresentação de histórico na observação segue o comportamento existente.
 
 Formato obrigatório:
 
@@ -103,9 +103,17 @@ CONFIGURAÇÃO: processador, memória, armazenamento, vídeo
 CONFIRMAÇÃO DO TÉCNICO: nome, data/hora, com ou sem ressalvas
 ```
 
-### Risco de integração identificado
+### Aproveitamento da integração atual
 
-O fluxo existente de `/sincronizar-rastreador` encaminha uma observação curta ao serviço externo `.../api/infonotebook/service-order-sync`; ele não demonstra a gravação nem a releitura do relatório completo na OS existente. O código já usa `PUT /ordens-servico/{id}` para reparar localização e tem `GET /ordens-servico/{id}`, logo a API parece oferecer o caminho técnico. Ainda falta confirmar, em ambiente de homologação e sem alterar uma OS real, qual identificador deve ser usado e se `obs_pedido` aceita a atualização preservando todos os demais campos. Esta é a primeira tarefa de implementação e o principal risco de prazo.
+O envio ao AlterTag já funciona na operação. A implementação deve localizar o ponto em que o texto do relatório é montado e aplicar ali o novo formato, sem criar uma nova rota de atualização da OS. A conferência consiste em comparar o texto exibido no app com o texto enviado pelo fluxo atual, incluindo o caso de rastreador já cadastrado.
+
+## Ordem de implementação por etapas
+
+1. **Modelo do relatório:** mapear a estrutura de dados e a formatação atuais, criar o gerador do texto único e conferir seu uso na tela e no envio existente ao AlterTag.
+2. **Avaliação estética:** implementar em módulo isolado as oito peças, desenhos e referências, quatro estados, marcações e regras de grade em configuração versionada.
+3. **Provas de hardware:** adicionar evidências e confirmação observacional para som, touchpad, carregamento e rede, preservando o teste de teclado estabilizado.
+4. **USB porta por porta:** registrar a detecção por localização e a confirmação do técnico, com justificativa para aprovação manual.
+5. **Integração e validação:** reunir os resultados no relatório, verificar o rastreador já cadastrado, executar a suíte e validar o fluxo em máquinas da bancada antes da publicação.
 
 ## Critérios de aceite
 
@@ -114,12 +122,12 @@ O fluxo existente de `/sincronizar-rastreador` encaminha uma observação curta 
 - As oito etapas estéticas seguem a ordem, têm os quatro estados e exigem marca no desenho fora de Perfeito.
 - A mesma entrada e versão de regra produz a mesma grade e motivo; dano nunca é diluído por média.
 - Alteração de grade sempre tem justificativa; funcionamento e estética seguem separados.
-- Relatório usa o formato único, preserva histórico e é confirmado no rastreador existente antes do sucesso.
+- Relatório usa o formato único no app e no envio existente ao AlterTag, inclusive com rastreador já cadastrado; os registros locais permanecem consultáveis no histórico.
 - Registros legados continuam legíveis, sem reinterpretação automática.
 
 ## Testes e validação
 
-Para cada mudança, atualizar testes `.cjs`, `.py` e `.ps1` correspondentes. Acrescentar cenários de evidência automática/manual, falha de detecção, USB por porta, regras A/B/C/D, múltiplas marcações, pendência, não aplicável, troca justificada de grade, relatório e atualização de observação preservando histórico.
+Para cada mudança, atualizar testes `.cjs`, `.py` e `.ps1` correspondentes. Acrescentar cenários de evidência automática/manual, falha de detecção, USB por porta, regras A/B/C/D, múltiplas marcações, pendência, não aplicável, troca justificada de grade e formatação do relatório enviado pelo fluxo existente.
 
 Antes de declarar uma alteração pronta, executar a partir da raiz:
 
