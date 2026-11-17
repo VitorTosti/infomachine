@@ -1,228 +1,134 @@
-# Triagem com prova e avaliação estética por peça
+# Triagem com prova, avaliação estética e relatório AlterTag
 
 Data: 16/11/2026 · Branch: `VitorTosti/feat-orquestrar-equipe-qa` (PR #2)
 
-## Por que
+## Objetivo da entrega
 
-O dono da empresa relatou que muitas máquinas saem com triagem errada. Os problemas mais frequentes estão em quatro testes: **teclado, som, clique do mouse/touchpad e portas USB**. Acontecem duas coisas:
+Até sexta-feira, a triagem deve produzir resultados de hardware confiáveis e confirmados pelo técnico, uma avaliação estética guiada e um relatório único persistido na observação da OS/rastreador do AlterTag. A identificação existente de máquinas, serial e rastreador será reaproveitada e não será alterada.
 
-1. **O app falha:** não reconhece algo que funciona, o técnico fica travado e acaba aprovando "no olho".
-2. **O defeito escapa:** a máquina sai aprovada e depois se descobre que o som, o clique ou a USB não funcionavam.
+O técnico executa, observa e confirma cada teste. Detecção automática é evidência de execução, nunca prova suficiente de que o componente funciona. Quando a detecção falhar, há confirmação manual com justificativa obrigatória, identificada no relatório.
 
-Hoje, quase todos os itens do checklist são autodeclarados: o técnico clica em **Aprovado** e o app aceita. Só o teclado e o touchpad medem alguma coisa, e o teclado é justamente o teste instável.
+## Limites e restrições
 
-## Objetivo
+- Não publicar no NAS nem fazer push em `master` antes da validação em bancada e autorização do responsável.
+- Preservar os arquivos atuais de teclado e triagem até sincronização da máquina de trabalho; novos recursos devem ser isolados em módulos novos sempre que possível.
+- A frente Windows é prioritária. O Mac continua compatível: onde não houver detecção automática, a confirmação manual justificada é o caminho válido.
+- A aparência e o funcionamento são resultados independentes. Falhas, pendências e casos duvidosos precisam aparecer antes da liberação.
+- A ponte local Windows é de uma thread; rotas novas devem responder rapidamente e qualquer inventário lento deve usar coleta em segundo plano.
+- A lista obrigatória de checklist hoje é validada em JS, PowerShell e Python; mudanças nela exigem a atualização coordenada dos três validadores.
 
-Nesses quatro testes, o app deve **funcionar de forma confiável** e **não aceitar "Aprovado" sem uma evidência de que o teste foi feito**. Quando o app não conseguir detectar algo que funciona, o técnico ainda consegue concluir a etapa por **confirmação manual com justificativa**. Isso fica visível no relatório.
+## Modelo de evidência comum
 
-A frente estética acrescenta uma **inspeção guiada por peça**, com imagens de referência, registro dos detalhes encontrados e sugestão explicada de grade A/B/C/D. As definições e as regras de cada grade dependem de aprovação do responsável pela empresa antes da implementação do veredito.
+Cada item recebe `evidence`, quando aplicável:
 
-Este documento descreve o plano. A nova etapa estética e as novas exigências de evidência ainda não estão implementadas. O vínculo atual com a serial e o rastreador será reaproveitado, sem refazer a identificação dos equipamentos.
+```js
+{ source: "auto" | "manual", detail: string, at: "ISO-8601" }
+```
 
-### Limites e etapas posteriores
+- Itens que exigem evidência não podem ser aprovados sem evidência automática ou confirmação manual justificada.
+- Reprovado, Não testado e Não se aplica seguem exigindo justificativa quando já exigido pelo checklist.
+- A evidência é invalidada se o equipamento mudar ou se a triagem for limpa.
+- O relatório usa `[Aprovado]`, `[Reprovado]` e `[Aprovado – manual]` em texto; não usa emoji.
+- Um critério descreve a condição a verificar (por exemplo, `Alto-falantes sem ruído ou distorção`) e o resultado é registrado separadamente.
 
-- Os testes de funcionamento de câmera, tela, carregador, rede e HDMI continuam como estão nesta frente.
-- Detecção automática de USB no **macOS**: lá a USB continua manual, como hoje.
-- A avaliação estética está incluída como uma frente própria, detalhada na seção 7. Ela não muda os critérios nem o resultado dos testes de funcionamento.
-- O novo padrão de apresentação dos relatórios fica para uma etapa posterior. A inclusão dos resultados estéticos deve preservar o formato atual e os registros antigos.
-- Publicação no NAS: só depois da validação em bancada, fora desta implementação.
+## Hardware: escopo e evidências
 
-### O que tornaria a entrega um fracasso, mesmo funcionando
-
-- O técnico ficar **bloqueado** sem saída quando a detecção falhar. Sempre deve existir o caminho manual com justificativa.
-- Ações de teclado contarem como clique, ou o tom nunca ter tocado e mesmo assim o item ser aprovado.
-- Registros antigos de testes deixarem de abrir, ou a versão Mac quebrar.
-- O app ficar mais lento ou travar na tela de testes.
-
-## Restrições
-
-- **Windows:** a interface roda no Edge em modo app. O PowerShell (`InfoNotebookWindowsPreview.ps1`) serve os arquivos e uma ponte local (`localBridge`) **de uma só thread**, que atende uma requisição por vez num laço com espera de 100 ms. Qualquer rota nova precisa responder rápido para não travar o resto da interface.
-- **macOS:** usa `mac-ui/server.py`. O modo portátil (`portable.js`) pode rodar sem ponte local (`runtime.localBridgeUrl` vazio).
-- A lista de itens obrigatórios do checklist está repetida em três lugares, e os três precisam ser alterados juntos:
-  - `mac-ui/test-checklist.js` (catálogo);
-  - `Save-LocalTestRecord` em `InfoNotebookWindowsPreview.ps1` (`$requiredIds`);
-  - `mac-ui/server.py` (`required_ids`).
-- Os testes do projeto são scripts `node`, `python` e `powershell` em `CoreCAIJ/*.Tests.*`, executados a partir da raiz. Toda mudança precisa vir com testes nesse formato.
-- O prazo é curto, de um ou dois fins de semana. Por isso a ordem de entrega abaixo importa, para que cada parte possa ser entregue sozinha.
-
-## Abordagens consideradas
-
-| | Abordagem | Contrapartida |
+| Categoria | Critério e evidência | Confirmação do técnico |
 |---|---|---|
-| **A (escolhida)** | **Teste confiável e com prova:** cada teste coleta uma evidência automática e só libera "Aprovado" com ela. Se a detecção falhar, há confirmação manual com justificativa. | É a mais trabalhosa. A detecção de USB é a maior parte do esforço. |
-| B | Só corrigir os bugs e melhorar as instruções. | Barata, mas o técnico continua podendo aprovar sem testar. Resolve metade do problema. |
-| C | Exigir sequência e tempo mínimo por teste, sem detecção. | Fácil de burlar: basta esperar o tempo passar. |
+| Teclado | Teclas reconhecidas, por exemplo `84/84`; manter o fluxo atual de foco, captura, progresso e confirmação para Fn/Prt Sc do E14. | Confirma que as teclas físicas responderam; faltas ou confirmação manual ficam justificadas. |
+| Som | Reprodução concluída em cada canal e, quando aplicável, captura de microfone. | Confirma que ouviu sem ruído ou distorção; execução do tom não aprova sozinha. |
+| Touchpad | Movimento e cliques esquerdo/direito detectados; ignorar clique sintetizado por teclado. | Confirma movimento e ambos os cliques. |
+| USB | Dispositivo reconhecido em cada localização física; cada porta é um item distinto. | Confirma que a porta testada funcionou; detecção manual exige motivo. |
+| Carregamento | Registrar conexão/estado de carga disponível na plataforma. | Confirma alimentação, carregamento e firmeza do conector. |
+| Rede | Registrar conexão/interface e teste de acesso quando disponível. | Confirma Ethernet e/ou Wi-Fi testados conforme o item. |
 
-O dono do projeto escolheu a **A**, para atacar os dois lados do problema. As decisões que foram dele: Windows primeiro, Mac depois; ordem som, clique, teclado, USB.
+### USB por porta (Windows)
 
-## Design
+- A ponte expõe `GET /usb-devices` com `InstanceId`, nome e localização física da porta.
+- Ao abrir a etapa, o app cria uma foto inicial e consulta a rota aproximadamente a cada 1,5 s; para ao sair.
+- Dispositivo novo em localização ainda não usada cria/preenche `usb.port-N`, com a detecção registrada. Reconectar na mesma localização não cria porta nova.
+- Dispositivos já conectados podem ser escolhidos como evidência. Há remoção de detecção incorreta e adição manual com justificativa.
+- Sem ponte local ou no Mac, a interface informa a indisponibilidade e exige confirmação manual justificada para aprovar portas.
 
-### 1. Modelo de evidência (base comum)
+## Avaliação estética por etapas
 
-- Cada item do checklist ganha um campo opcional `evidence`: `{ source: "auto" | "manual", detail: string, at: ISO-8601 }`.
-- Alguns itens são marcados no catálogo como **exigem evidência** (`requiresEvidence: true`). Nesses itens:
-  - **Aprovado** fica desabilitado até existir `evidence.source === "auto"`. O motivo aparece no próprio item, por exemplo "Toque o lado esquerdo para liberar".
-  - Um botão **Confirmar manualmente** pede uma justificativa obrigatória e grava `evidence.source = "manual"` com o texto. Só então Aprovado é liberado.
-  - Reprovado, Não testado e Não se aplica continuam como hoje: não exigem evidência, mas Reprovado e Não testado exigem justificativa.
-- O relatório e o histórico mostram **"confirmado manualmente: <motivo>"** nos itens aprovados sem detecção automática.
-- A evidência é invalidada (item volta a pendente) quando o equipamento muda ou a triagem é limpa. Hoje isso já acontece em `syncTestEquipment` e `invalidateTestConfirmation`.
-- Nos três validadores (JS, PS e Python), um item com `requiresEvidence` e resultado `passed` sem `evidence` é rejeitado. Registros antigos já salvos não são revalidados, porque a validação ocorre só ao salvar.
-- Quando a detecção não está disponível na plataforma (Mac ou modo portátil sem ponte, no caso da USB), o item **não exige evidência**: o comportamento é o de hoje. Isso fica explícito na interface: "Detecção automática indisponível neste modo".
+### Roteiro obrigatório
 
-### 2. Som (primeiro)
+Nesta ordem, o app mostra o desenho da peça com a área destacada, quatro referências visuais e a pergunta de estado:
 
-- O item `audio.speakers` é substituído por três:
-  - `audio.left`: "Alto-falante esquerdo sem distorção";
-  - `audio.right`: "Alto-falante direito sem distorção";
-  - `audio.microphone`: "Microfone capta a voz com clareza".
-- O tom de teste ganha botões **Tocar esquerda** e **Tocar direita**, usando `StereoPannerNode` com pan −1 e +1. Isso pega o alto-falante queimado de um lado só.
-- Evidência:
-  - `audio.left` e `audio.right`: o tom do respectivo lado terminou de tocar com volume acima de 0.
-  - `audio.microphone`: o medidor ficou acima de um limiar por um tempo mínimo acumulado. Como o ruído de fundo não deve passar, o limiar exato e o tempo ficam a cargo do construtor (ponto de partida: nível > 25 por 500 ms acumulados), calibrados com um teste real.
-- O texto de ajuda passa a citar os dois lados e o microfone.
+1. Tampa superior
+2. Moldura da tela
+3. Tela (superfície)
+4. Teclado e apoio de mãos
+5. Base inferior
+6. Dobradiças
+7. Portas e conectores
+8. Peças ausentes
 
-### 3. Clique do touchpad/mouse (segundo)
+As únicas respostas de condição são: **Perfeito**, **Marcas leves**, **Marcas visíveis** e **Dano**. Peça não existente pode ser **Não se aplica**; peça sem resposta é pendente, nunca perfeita.
 
-- `listenForMouseButtons` deixa de contar **eventos gerados pelo teclado**:
-  - `click` com `detail === 0` (Enter ou espaço);
-  - `contextmenu` sem `pointerdown`/`mousedown` real próximo (tecla Menu ou Shift+F10).
-- Toques no touchpad (*tap-to-click*), que geram eventos de ponteiro reais, continuam valendo. O construtor deve conferir a heurística em um notebook com tap habilitado.
-- O item `trackpad.buttons` exige evidência de **clique esquerdo e direito** detectados. O clique do meio continua sendo mostrado, mas **não é obrigatório**, porque muitos touchpads não têm botão do meio.
-- O item `trackpad.movement` exige evidência de movimento: no mínimo 20 eventos `pointermove` na área de teste.
+Se a resposta não for Perfeito, o técnico deve tocar no desenho para marcar o local do defeito. A marca armazena coordenadas normalizadas; a observação em texto é opcional e várias marcas podem existir na mesma peça. Não haverá foto enviada pelo técnico nesta entrega.
 
-### 4. Teclado (terceiro)
+Os desenhos e as referências são guias de inspeção, não evidência fotográfica da máquina. Aparência de tela, dobradiças e conectores não substitui seus testes funcionais.
 
-- A correção de foco e captura já está na PR #2.
-- O item `keyboard.keys` exige evidência: **todas as teclas visíveis do mapa** registradas, seja pela tecla física, seja pela confirmação manual por clique já existente (Fn, Prt Sc, F11 no Mac).
-- Se faltarem teclas, a confirmação manual vem **pré-preenchida com a lista das teclas não reconhecidas**. O técnico completa o motivo, por exemplo "tecla inexistente neste modelo".
+### Grade configurável
 
-### 5. USB (por último; só Windows)
+As regras ficam em arquivo de configuração versionado, separado da tela, com versão salva no registro. Regras iniciais:
 
-- **Nova rota na ponte local:** `GET /usb-devices`. Ela retorna os dispositivos USB presentes, cada um com:
-  - um identificador estável (`InstanceId`);
-  - o nome amigável;
-  - a **localização física da porta** (por exemplo `Port_#0002.Hub_#0003`, da propriedade de localização do dispositivo).
+- **A:** tudo perfeito, no máximo uma peça com marcas leves.
+- **B:** apenas marcas leves.
+- **C:** ao menos uma peça com marcas visíveis, ou quatro ou mais peças com marcas leves.
+- **D:** qualquer dano; dano em tela ou dobradiças é sempre D.
 
-  A rota precisa responder em poucas centenas de milissegundos, por causa da ponte de uma só thread. O construtor escolhe a consulta (CIM ou PnP) medindo o tempo. Se nenhuma for rápida, a coleta vai para um processo em segundo plano que grava um arquivo, como já é feito com `-DeviceOutput`.
-- **No front-end**, com a etapa USB aberta:
-  - o app tira uma foto inicial da lista e passa a consultar a rota a cada ~1,5 s;
-  - a consulta para quando o técnico sai da etapa;
-  - todo dispositivo novo vira uma **detecção**: "Detectado: <nome> na porta <localização>".
-- **Fluxo:** "Conecte o pendrive em uma porta". A cada detecção em uma **localização ainda não usada**, o app cria (ou preenche a próxima porta pendente) um item `usb.port-N` com evidência automática e um nome sugerido ("Porta N"), que o técnico pode renomear.
-- Reconectar na mesma localização **não** conta uma porta nova.
-- Uma porta só pode ser aprovada com detecção, ou com confirmação manual justificada.
-- `usb.inventory` ("Conferi e listei todas as portas USB presentes") continua manual.
-- `portable.js` repassa `/api/usb-devices` à ponte local quando `runtime.localBridgeUrl` existe. Sem ponte, e no Mac, a detecção fica indisponível e a USB funciona como hoje.
+Não usar média: um dano relevante não pode ser escondido por outras peças em bom estado. A sugestão explica a causa, por exemplo: `Grade C: tampa superior com marcas visíveis`. Pendência ou caso sem regra deixa a avaliação como pendente de revisão. O técnico pode alterar a grade sugerida somente com justificativa, registrada no relatório.
 
-### 6. Decisões tomadas na revisão (escolhas do autor do design, a conferir)
+## Registro e relatório AlterTag
 
-- **Mac nesta entrega:** o catálogo é compartilhado, então os IDs novos (`audio.left`, `audio.right`, `audio.microphone`) valem nas duas plataformas, e `server.py` passa a aceitá-los. A **exigência de evidência** fica ativa **só no Windows** (`runtime.platform === "windows"`). No Mac, os itens continuam sendo aprovados como hoje, e `server.py` não exige evidência.
-- **Validador quando a detecção falha:** no Windows, o PowerShell **sempre** exige evidência (automática ou manual) nos itens marcados. "Detecção indisponível" na tela significa apenas que o técnico precisa usar **Confirmar manualmente**, com justificativa. Não existe sinalizador de "indisponível" aceito pelo validador, para que ninguém consiga contornar a regra.
-- **Microfone negado ou ausente:** segue a mesma regra. Sem evidência automática, a saída é a confirmação manual, ou Reprovado/Não testado com justificativa.
-- **Identidade da porta USB:** a localização física é uma aproximação. O técnico pode **remover uma detecção errada**, por exemplo a mesma tomada detectada duas vezes. Dispositivos já conectados no momento da foto inicial aparecem como "já conectado em <localização>". O técnico pode usá-los como evidência da porta com um clique, porque um receptor de mouse funcionando prova a porta. Não há mapeamento de portas por modelo.
-- **Portas pré-criadas "USB 1" e "USB 2":** no Windows com detecção disponível, a lista começa **vazia** e as portas surgem pelas detecções ou por "Adicionar porta" manual, que exige confirmação manual. Sem detecção (Mac ou modo portátil), as duas portas pré-criadas continuam como hoje.
+Uma única estrutura de dados alimenta tela, persistência local, histórico e o gerador de relatório. Ela inclui itens de hardware, evidências, dados de configuração, avaliação de cada peça e marcações, versão da regra, grades sugerida e confirmada, justificativa de alteração, técnico e datas.
 
-### 7. Triagem estética guiada por peça
+Ao concluir, o relatório deve ser anexado à observação da OS/rastreador no AlterTag, inclusive se o rastreador já estiver cadastrado. Não pode criar outro rastreador nem alterar o status da OS. Cada envio preserva os registros anteriores, permitindo descobrir defeitos que continuam escapando. A interface só informa sucesso depois de confirmação de leitura/persistência no AlterTag.
 
-#### Fluxo proposto
+Formato obrigatório:
 
-1. Mostrar uma imagem que identifique a peça a ser inspecionada, rotulada como **Imagem de referência**.
-2. Fazer a pergunta **Em que estado está esta peça?**, com opções claras e exemplos visuais.
-3. Registrar os detalhes encontrados e, quando disponível, uma foto da própria máquina avaliada.
-4. Repetir a inspeção nas demais regiões.
-5. Apresentar um resumo por peça, os motivos da classificação e a grade sugerida.
-6. Pedir a conferência final do técnico e registrar a grade confirmada. Se ele escolher outra grade, registrar também o motivo da alteração.
+```text
+RELATÓRIO DE TRIAGEM
+OS / Serial / Data e hora / Técnico
+SITUAÇÃO: ENCAMINHAR PARA REPARO / LIBERAR / REVISAR + motivo
+RESUMO: testes aprovados e reprovados, pendentes/não testados, aprovações manuais, grade estética
+PROBLEMAS ENCONTRADOS: cada item marcado [Funcional] ou [Estético]
+SERVIÇOS REALIZADOS
+RESULTADOS DOS TESTES por categoria (Câmera, Teclado, Som, Tela, Touchpad, Portas USB, Carregamento, Rede, HDMI), com Critério, Resultado, Detalhe e Evidência quando houver
+AVALIAÇÃO ESTÉTICA: GRADE X + motivo + estado de cada peça com local marcado
+CONFIGURAÇÃO: processador, memória, armazenamento, vídeo
+CONFIRMAÇÃO DO TÉCNICO: nome, data/hora, com ou sem ressalvas
+```
 
-A imagem de referência orienta a inspeção; ela não é uma foto nem uma evidência da condição da máquina atual. As fotos anexadas pelo técnico devem ficar identificadas separadamente.
+### Risco de integração identificado
 
-#### Peças e regiões
+O fluxo existente de `/sincronizar-rastreador` encaminha uma observação curta ao serviço externo `.../api/infonotebook/service-order-sync`; ele não demonstra a gravação nem a releitura do relatório completo na OS existente. O código já usa `PUT /ordens-servico/{id}` para reparar localização e tem `GET /ordens-servico/{id}`, logo a API parece oferecer o caminho técnico. Ainda falta confirmar, em ambiente de homologação e sem alterar uma OS real, qual identificador deve ser usado e se `obs_pedido` aceita a atualização preservando todos os demais campos. Esta é a primeira tarefa de implementação e o principal risco de prazo.
 
-| Região | Pontos de inspeção |
-|---|---|
-| Tampa superior | Riscos, marcas, amassados e outros danos visíveis |
-| Tela | Marcas, riscos e danos na superfície |
-| Moldura da tela | Trincas, quebras e encaixes |
-| Base do teclado e apoio das mãos | Desgaste, riscos, trincas e peças ausentes |
-| Teclado e touchpad | Conservação, desgaste visível e integridade das peças |
-| Laterais e conectores | Danos visíveis, acabamento e peças ausentes |
-| Dobradiças | Danos visíveis na região e no acabamento |
-| Tampa inferior | Marcas, trincas, parafusos e apoios ausentes |
+## Critérios de aceite
 
-O roteiro deve respeitar o tipo de equipamento. A inspeção visual da tela, do teclado, do touchpad e dos conectores não substitui os testes de funcionamento. Por exemplo, a aparência da dobradiça e sua capacidade de sustentar a tela são verificações distintas.
+- Cada aprovação de hardware registra evidência automática ou manual justificada e confirmação observacional do técnico.
+- USB evidencia cada porta individualmente; touchpad mostra esquerdo/direito; teclado registra contagem de teclas; áudio registra reprodução.
+- As oito etapas estéticas seguem a ordem, têm os quatro estados e exigem marca no desenho fora de Perfeito.
+- A mesma entrada e versão de regra produz a mesma grade e motivo; dano nunca é diluído por média.
+- Alteração de grade sempre tem justificativa; funcionamento e estética seguem separados.
+- Relatório usa o formato único, preserva histórico e é confirmado no rastreador existente antes do sucesso.
+- Registros legados continuam legíveis, sem reinterpretação automática.
 
-#### Exemplo: tampa superior
+## Testes e validação
 
-**Pergunta:** Em que estado a tampa superior está?
+Para cada mudança, atualizar testes `.cjs`, `.py` e `.ps1` correspondentes. Acrescentar cenários de evidência automática/manual, falha de detecção, USB por porta, regras A/B/C/D, múltiplas marcações, pendência, não aplicável, troca justificada de grade, relatório e atualização de observação preservando histórico.
 
-- Sem marcas estéticas relevantes.
-- Riscos leves ou pequenas marcas de uso.
-- Riscos ou marcas mais evidentes.
-- Amassados.
-- Trinca, quebra ou outro dano visível.
-- Não foi possível avaliar.
+Antes de declarar uma alteração pronta, executar a partir da raiz:
 
-Essas são opções iniciais para validar com o responsável, sem correspondência automática com A/B/C/D enquanto as regras não forem aprovadas. As opções devem ser adaptadas a cada peça.
+```powershell
+Get-ChildItem CoreCAIJ -Filter *.Tests.cjs | ForEach-Object { node $_.FullName }
+Get-ChildItem CoreCAIJ -Filter *.Tests.py  | ForEach-Object { python $_.FullName }
+Get-ChildItem CoreCAIJ -Filter *.Tests.ps1 | ForEach-Object { powershell -ExecutionPolicy Bypass -File $_.FullName }
+Get-ChildItem CoreCAIJ/mac-ui -Filter *.js | ForEach-Object { node --check $_.FullName }
+python -m py_compile CoreCAIJ/mac-ui/server.py
+```
 
-Deve ser possível registrar mais de um detalhe na mesma peça, para que um risco não apague o registro de uma trinca, por exemplo. Para cada problema, registrar **tipo, localização, extensão e observação**, com possibilidade de anexar uma foto da própria máquina.
-
-**Não foi possível avaliar** representa uma pendência e não pode ser interpretado como peça sem marcas. Quando uma peça não existir naquele tipo de equipamento, permitir **Não se aplica**, mantendo a observação opcional, conforme a regra já acordada.
-
-#### Veredito e grades A/B/C/D
-
-- As quatro opções da nova etapa estética são **A, B, C e D**, cada uma com definição, exemplos e limites aprovados pelo responsável.
-- A diferença entre C e D precisa ficar especialmente clara para evitar classificações sobrepostas.
-- A sugestão de grade deve resultar de regras explícitas sobre os achados, com uma explicação legível: quais peças e detalhes levaram à sugestão.
-- Não usar média das notas das peças: um dano importante não deve desaparecer porque as outras partes estão bem conservadas.
-- A classificação será guiada pelos registros do técnico e pelas referências; não está prevista classificação automática por análise de imagem.
-- Se houver peça obrigatória não avaliada ou caso sem regra definida, mostrar **Avaliação estética pendente de revisão**, sem apresentar uma grade final como confirmada.
-- O técnico revisa o resumo e confirma a grade. Uma alteração em relação à sugestão exige motivo registrado e fica visível para conferência posterior.
-- Manter separados **resultado dos testes de funcionamento** e **grade estética**. Grade A na aparência não representa aprovação de hardware.
-- Preservar a leitura de classificações antigas, inclusive RMA quando existir no histórico; não reinterpretar os registros anteriores como avaliações feitas pelo novo roteiro.
-
-#### Registro e relatório
-
-O registro planejado deve guardar a avaliação de cada peça, seus detalhes e fotos disponíveis, a versão das regras de classificação, a grade sugerida e seu motivo, a grade confirmada, eventual justificativa de alteração, técnico e data. Usar o vínculo já existente com a serial e o rastreador.
-
-O resumo estético deve compor o relatório da triagem destinado à Ordem de Serviço no AlterTag. A atualização de uma Ordem de Serviço já existente precisa respeitar o contrato da integração e não pode alterar seu status ou criar outro rastreador apenas para registrar a avaliação. Não indicar envio concluído antes da confirmação da integração.
-
-O novo layout de relatório discutido com o usuário permanece para uma fase posterior. Registros antigos devem continuar acessíveis e identificados como históricos, sem ganhar uma grade ou uma confirmação novas automaticamente.
-
-#### Dependências e aceite da frente estética
-
-Antes de implementar o veredito, aprovar com o responsável as definições A/B/C/D, as imagens de referência, a lista de peças por tipo de equipamento e as regras para achados e casos duvidosos.
-
-Critérios de aceite:
-
-- Cada peça aplicável aparece com imagem de referência, pergunta e opções adequadas.
-- Mais de um detalhe na mesma peça é preservado, com localização e extensão.
-- Foto de referência e foto da máquina avaliada são distinguíveis.
-- Nenhuma peça começa implicitamente como sem defeitos; itens não avaliados permanecem pendentes.
-- A mesma combinação de achados e a mesma versão das regras produzem a mesma sugestão e explicação de grade.
-- Um dano relevante não é diluído pela média das demais peças.
-- A alteração da grade sugerida registra motivo; a aparência não aprova os testes de funcionamento.
-- Registros legados continuam legíveis, e o relatório mantém o vínculo com o rastreador existente.
-- O responsável e os técnicos validam o roteiro em máquinas reais e revisam as divergências antes da publicação no NAS.
-
-## Ordem de entrega e testes
-
-Cada etapa é entregável sozinha, com testes passando.
-
-1. Base de evidência, já com o som. Inclui os validadores JS, PS e Python com os novos IDs.
-2. Clique e movimento.
-3. Evidência do teclado.
-4. Detecção de USB.
-5. Frente estética: aprovar critérios e referências, implementar checklist por peça, resumo e veredito explicado, integrar o registro e validar em bancada. A definição das regras e das imagens pode ocorrer enquanto a frente de hardware é desenvolvida.
-
-Os testes novos ou atualizados seguem o padrão existente: VM com DOM simulado em `.cjs`, como `KeyboardLayout.Tests.cjs`; validadores em `TestRecords.Tests.ps1` e `.py`; e um teste da rota USB com um coletor substituível. Ao final, a suíte inteira (`CoreCAIJ/*.Tests.*`) deve passar a partir da raiz.
-
-Para a frente estética, acrescentar casos de regras A/B/C/D aprovadas, múltiplos detalhes na mesma peça, peça pendente, peça não aplicável, sugestão explicada sem média, alteração justificada e leitura de histórico anterior. Até as definições serem aprovadas, os testes não devem inventar critérios de classificação da empresa.
-
-A validação física em bancada fica com o dono do projeto e é a condição para publicar no NAS. Ela inclui: um alto-falante de cada lado; tap-to-click; teclado E14 e outros modelos; um pendrive em cada porta, incluindo USB-C.
-
-## Decisões deixadas ao construtor
-
-- Valores exatos dos limiares (microfone, movimento) e do intervalo de consulta da USB, dentro do que está descrito acima.
-- A consulta do Windows usada para listar a USB, escolhida pelo tempo de resposta.
-- O texto exato das mensagens na interface, mantendo o tom atual do app.
-- A estrutura interna do código, desde que o catálogo continue sendo a fonte dos itens.
-- A apresentação e a navegação entre peças da inspeção estética, preservando as referências aprovadas. As definições A/B/C/D e as regras do veredito são decisões do responsável pela empresa, não do construtor.
+A validação física em bancada é obrigatória antes da publicação: canais de áudio, tap-to-click, teclado E14 e outros modelos, pendrive em cada USB inclusive USB-C, carregamento e rede.
