@@ -1146,6 +1146,26 @@ function testRailState(test) {
   return results.every((result) => result === "not_applicable") ? "not_applicable" : "passed";
 }
 
+function blockersText(test) {
+  const blockers = testBlockers(test);
+  if (!blockers.length) return "Tudo preenchido neste teste.";
+  const suffix = { evidence: " (detecção)", justification: " (justificativa)", pending: "" };
+  const names = blockers.slice(0, 3).map((blocker) => `${blocker.label}${suffix[blocker.reason]}`).join(", ");
+  const more = blockers.length > 3 ? ` e mais ${blockers.length - 3}` : "";
+  return blockers.length === 1 ? `Falta 1 item: ${names}` : `Faltam ${blockers.length} itens: ${names}${more}`;
+}
+
+function approvePendingItems(test) {
+  const needsEvidence = new Set(testBlockers(test).filter((blocker) => blocker.reason === "evidence").map((blocker) => blocker.id));
+  let changed = 0;
+  for (const item of state.testChecklist) {
+    if (item.testId !== test || item.result !== "pending" || needsEvidence.has(item.id)) continue;
+    item.result = "passed";
+    changed += 1;
+  }
+  return changed;
+}
+
 const railStateLabels = { passed: ["✓", "Aprovado"], failed: ["✕", "Reprovado"], untested: ["!", "Com ressalva"], not_applicable: ["–", "Não se aplica"], incomplete: ["!", "Falta"], pending: ["○", "Pendente"] };
 
 function renderTestRail() {
@@ -1302,6 +1322,30 @@ function renderActionBar() {
   for (const id of ["skipActiveTest", "failAndNextTest", "passAndNextTest"]) qs(id).classList.toggle("hidden", review);
   qs("confirmHardwareTests").classList.toggle("hidden", !review);
   qs("testActionBar").classList.toggle("review", review);
+  const status = qs("activeTestBlockers");
+  if (review) { status.textContent = qs("testConfirmationStatus").textContent; status.dataset.state = "review"; return; }
+  const index = testSequence.indexOf(state.activeTest);
+  if (index < 0) return;
+  const last = index === testSequence.length - 1;
+  const blockers = testBlockers(state.activeTest);
+  status.textContent = blockersText(state.activeTest);
+  status.dataset.state = blockers.length ? "open" : "done";
+  qs("passAndNextTest").textContent = blockers.some((blocker) => blocker.reason === "pending")
+    ? (last ? "Aprovar tudo e revisar →" : "Aprovar tudo e próximo →") : last ? "Revisar →" : "Próximo →";
+}
+
+function showChecklistBlockers(focusId, message) {
+  qs("hardwareChecklistItems").classList.add("show-blockers");
+  renderHardwareChecklist();
+  if (message) qs("activeTestBlockers").textContent = message;
+  const bar = qs("testActionBar");
+  bar.classList.remove("attention");
+  void bar.offsetWidth;
+  bar.classList.add("attention");
+  const target = (focusId && (qs(`note-${focusId}`) || document.querySelector(`#hardwareChecklistItems [data-check-result="${focusId}"]`)))
+    || document.querySelector("#hardwareChecklistItems [data-check-result]");
+  target?.scrollIntoView({ block: "nearest" });
+  target?.focus({ preventScroll: true });
 }
 
 function openReview() {
@@ -1348,10 +1392,7 @@ function stopActiveTest() {
 function renderActiveTestNavigation() {
   const currentIndex = testSequence.indexOf(state.activeTest);
   if (currentIndex >= 0) {
-    const isLastTest = currentIndex === testSequence.length - 1;
     qs("activeTestStep").textContent = `${currentIndex + 1} de ${testSequence.length}`;
-    qs("passAndNextTest").textContent = isLastTest ? "Aprovado e revisar" : "Aprovado e próximo";
-    qs("failAndNextTest").textContent = isLastTest ? "Reprovado e revisar" : "Reprovado e próximo";
   }
   renderTestRail();
   renderActionBar();
@@ -1361,13 +1402,16 @@ async function completeActiveTest(result) {
   const currentTest = state.activeTest;
   const currentIndex = testSequence.indexOf(currentTest);
   if (currentIndex < 0) return;
-  const items = state.testChecklist.filter((item) => item.testId === currentTest);
-  const missingDetail = items.some((item) => ["failed", "untested"].includes(item.result) && !item.notes.trim());
-  if (result !== "pending" && (items.some((item) => item.result === "pending") || missingDetail || (result === "passed" && items.some((item) => ["failed", "untested"].includes(item.result))) || (result === "failed" && !items.some((item) => item.result === "failed")))) {
-    closeScreenTest();
-    qs("hardwareChecklistStatus").textContent = "Registre cada resultado e justifique as exceções no checklist. Se um item não foi verificado, marque Não testado. Use Pular etapa apenas para avançar sem concluir este teste.";
-    qs("hardwareChecklist").scrollIntoView({ behavior: "smooth", block: "center" });
-    return;
+  if (result !== "pending") {
+    if (result === "passed" && approvePendingItems(currentTest)) invalidateTestConfirmation();
+    const hasFailure = state.testChecklist.some((item) => item.testId === currentTest && item.result === "failed");
+    const blockers = testBlockers(currentTest);
+    if (blockers.length || (result === "failed" && !hasFailure)) {
+      closeScreenTest();
+      renderTests();
+      showChecklistBlockers(blockers[0]?.id, result === "failed" && !hasFailure ? "Marque Reprovado no item que falhou e descreva o defeito." : "");
+      return;
+    }
   }
   const nextTest = testSequence[currentIndex + 1];
   renderTests();
@@ -1926,6 +1970,7 @@ async function openTest(test) {
   qs("testReviewPanel").classList.add("hidden");
   qs("testPanel").classList.remove("hidden");
   qs("testWorkspace").scrollTop = 0;
+  qs("hardwareChecklistItems").classList.remove("show-blockers");
   qs("activeTestTitle").textContent = testLabels[test];
   const helps = {
     camera: "Autorize a câmera e confira a nitidez, o enquadramento e a estabilidade da imagem.",

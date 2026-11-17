@@ -6014,3 +6014,13 @@ body:has(#testsView:not(.hidden)), .app-shell:has(#testsView:not(.hidden)) { min
 #testsView .check-result-options .check-result-untested[aria-pressed=true] { color: #2b230a; background: #e5cf8f; border-color: #e5cf8f; font-weight: 600; }
 #testsView .hardware-check-item .hardware-check-note { grid-column: 1 / -1; margin: 0; }
 #testsView .hardware-check-note input { margin-top: 4px; }
+
+/* Barra de ação: o que falta à esquerda, decisão à direita. */
+#testsView #activeTestBlockers::before { content: "!"; display: inline-grid; place-items: center; width: 20px; height: 20px; margin-right: 8px; border: 1.5px solid currentColor; border-radius: 50%; font-size: 12px; font-weight: 700; vertical-align: -2px; }
+#testsView #activeTestBlockers[data-state=open] { color: #f0e6b8; }
+#testsView #activeTestBlockers[data-state=done] { color: #8be7cb; }
+#testsView #activeTestBlockers[data-state=done]::before { content: "✓"; }
+#testsView #activeTestBlockers[data-state=review]::before { content: none; }
+#testsView .tests-action-bar.attention { animation: tests-bar-attention .5s ease-out; }
+@keyframes tests-bar-attention { 0% { border-color: #e5cf8f; box-shadow: 0 0 0 3px rgba(229, 207, 143, .35); } 100% { border-color: #30465b; box-shadow: 0 0 0 3px rgba(229, 207, 143, 0); } }
+@media (prefers-reduced-motion: reduce) { #testsView .tests-action-bar.attention { animation: none; } #testsView .hardware-check-item, #testsView .tests-progress span { transition: none; } }

@@ -51,4 +51,20 @@ assert.equal((rail.match(/data-rail-test="/g) || []).length, 10, 'nove testes e 
 assert.match(rail, /data-rail-test="review"/);
 assert.match(rail, /data-state="pending"><button type="button" data-rail-test="camera"/);
 
-console.log('PASS: estado da lista lateral e pendencias por teste.');
+// Task 4: barra de ação
+uiState.testChecklist = items();
+assert.equal(ui.blockersText('audio'), `Falta 1 item: ${label('audio.speakers')} (detecção)`);
+assert.equal(ui.approvePendingItems('audio'), 0, 'evidência nunca é pulada');
+assert.equal(uiState.testChecklist.find(i => i.id === 'audio.speakers').result, 'pending');
+set('usb.port-1', { result: 'failed', notes: '' });
+assert.equal(ui.approvePendingItems('usb'), 2);
+assert.equal(uiState.testChecklist.find(i => i.id === 'usb.port-1').result, 'failed', 'não sobrescreve item marcado');
+assert.equal(ui.blockersText('usb'), 'Falta 1 item: USB 1 (justificativa)');
+set('usb.port-1', { notes: 'Sem contato' });
+assert.equal(ui.blockersText('usb'), 'Tudo preenchido neste teste.');
+uiState.testChecklist = items();
+assert.equal(ui.blockersText('screen'), `Faltam 2 itens: ${label('screen.pixels')}, ${label('screen.artifacts')}`);
+for (let n = 3; n <= 5; n++) uiState.testChecklist.push({ id: `usb.port-${n}`, testId: 'usb', label: `USB ${n}`, result: 'pending', notes: '' });
+assert.match(ui.blockersText('usb'), /^Faltam 6 itens: .+, USB 1, USB 2 e mais 3$/);
+
+console.log('PASS: estado da lista lateral, pendencias e barra de acao.');
