@@ -11,47 +11,48 @@
   <main class="app-shell">
     <section class="topbar">
       <div class="brand">
-        <span class="brand-mark"><img id="brandLogo" src="logo.png" alt="CAIJ Informatica"></span>
+        <span class="brand-mark"><img id="brandLogo" src="logo.png" alt="CAIJ Informática"></span>
         <div class="brand-copy">
-          <p class="brand-kicker" id="brandKicker">CAIJ INFORMATICA / BANCADA TECNICA</p>
+          <p class="brand-kicker" id="brandKicker">CAIJ INFORMÁTICA / BANCADA TÉCNICA</p>
           <h1>InfoNotebook <span id="platformName">Mac</span></h1>
-          <p id="serverLine">Preparando ambiente...</p>
+          <p id="serverLine">Preparando o aplicativo...</p>
         </div>
       </div>
-      <nav class="hero-command-bar" aria-label="Navegacao principal">
+      <nav class="hero-command-bar" aria-label="Navegação principal">
         <span class="nav-section-label">ÁREA DE TRABALHO</span>
         <button id="openMenu" class="hero-action active" type="button" aria-current="page"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z"></path></svg><span>Menu</span></button>
         <button id="openCreateOs" class="hero-action" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5.5h6M9 9.5h6M9 13.5h3M8 3h8a2 2 0 0 1 2 2v14H6V5a2 2 0 0 1 2-2Z"></path><path d="M15 16h5M17.5 13.5v5"></path></svg><span>Cadastrar rastreador</span></button>
         <button id="openTests" class="hero-action" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6M10 3v5l-5 9a3 3 0 0 0 2.6 4.5h8.8A3 3 0 0 0 19 17l-5-9V3M7.5 15h9"></path></svg><span>Testes</span></button>
         <button id="openLabels" class="hero-action" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7V4h3M17 4h3v3M20 17v3h-3M7 20H4v-3M7 8h10v8H7z"></path></svg><span>Etiquetas</span></button>
       </nav>
+      <button type="button" class="app-info-trigger" id="openAppInfo">Versão e atualizações</button>
       <div class="topbar-side hidden">
         <div class="status-cluster hidden" aria-label="Status do aplicativo">
           <span class="status-chip" id="internetBadge"><i></i> Internet</span>
           <span class="status-chip" id="serverBadge"><i></i> Servidor</span>
-          <span class="status-chip version-chip" id="versionBadge">Versao local</span>
+          <span class="status-chip version-chip" id="versionBadge">Versão local</span>
           <button class="status-chip fullscreen-chip" id="fullscreenBtn" type="button">Tela cheia</button>
         </div>
       </div>
     </section>
 
     <section class="app-view home-view" id="homeView">
-      <section class="hero-strip">
+      <section class="hero-strip" aria-labelledby="equipmentSummaryHeading">
         <div class="equipment-summary">
-          <span class="section-index">01</span>
-          <div><p>Equipamento selecionado</p><strong id="equipmentSummaryText">Leitura em andamento</strong></div>
+          <span class="equipment-symbol" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4M7 8h5M7 11h8"/></svg></span>
+          <div><h2 id="equipmentSummaryHeading">Equipamento selecionado</h2><strong id="equipmentSummaryText" role="status">Leitura em andamento</strong></div>
         </div>
-        <div class="hero-utilities" aria-label="Acoes rapidas">
+        <div class="hero-utilities" aria-label="Ações rápidas">
           <span class="hero-utilities-label">Ações rápidas</span>
-          <button type="button" id="refreshReading" title="Atualizar a leitura da maquina">
+          <button type="button" id="refreshReading" title="Atualizar os dados do equipamento">
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5M18.4 9A7 7 0 0 0 6.3 6.3L4 9m16 6-2.3 2.7A7 7 0 0 1 5.6 15"/></svg>
-            <strong>Atualizar</strong>
+            <strong>Atualizar leitura</strong>
           </button>
-          <button type="button" id="copyDeviceInfo" title="Copiar a ficha tecnica">
+          <button type="button" id="copyDeviceInfo" title="Copiar a ficha técnica">
             <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
             <strong>Copiar ficha</strong>
           </button>
-          <time id="sessionClock" aria-label="Horario atual"><small>Agora</small><b>--:--</b></time>
+          <time id="sessionClock" aria-label="Horário atual"><small>Agora</small><b>--:--</b></time>
         </div>
       </section>
 
@@ -59,11 +60,12 @@
         <div class="home-device-column">
         <aside class="panel device-panel">
         <div class="panel-head">
-          <div><h2 id="deviceModelHeading">Lendo equipamento...</h2><p class="device-source" id="devicePanelTitle">Informações do Mac</p></div>
+          <div><h2 id="deviceModelHeading">Lendo os dados do equipamento...</h2><p class="device-identity windows-only hidden"><span>Serial</span><strong id="deviceSerialHeading">Leitura em andamento</strong></p><p class="device-source" id="devicePanelTitle">Informações do Mac</p></div>
           <div class="panel-head-actions">
-            <button id="editToggle" class="icon-btn" type="button" title="Editar dados">Editar</button>
+            <button id="editToggle" class="icon-btn" type="button" title="Editar os dados do equipamento">Editar</button>
           </div>
         </div>
+        <div class="device-review hidden" id="deviceReview" role="status"></div>
         <div class="device-content">
           <figure class="device-photo hidden" id="devicePhoto">
             <img id="devicePhotoImage" src="notebook-illustrative.png" alt="Notebook ilustrativo" loading="eager" decoding="async">
@@ -76,39 +78,22 @@
           <label>CPU<input name="cpu"></label>
           <label>GPU<input name="gpu"></label>
           <label>RAM<input name="ram"></label>
-          <label class="windows-only hidden">Posições / RAM soldada (confirme fisicamente)<input name="ramDetalhes" placeholder="Ex.: 1/2 posições; soldada não confirmada"></label>
-          <label>Disco<input name="disco"></label>
+          <label class="windows-only hidden">Posições de RAM e memória soldada (conferência física)<input name="ramDetalhes" placeholder="Ex.: 1 de 2 posições ocupadas; memória soldada não confirmada"></label>
+          <label>Armazenamento<input name="disco"></label>
           <label>Bateria<input name="bateria"></label>
           <button type="submit">Salvar dados</button>
         </form>
-        </aside>
         <label class="os-box hero-os home-os-band" for="osInput">
           <span>Rastreador</span>
           <input id="osInput" value="C000235" inputmode="numeric" autocomplete="off" aria-label="Número do rastreador">
-          <small>Clique para alterar</small>
+          <small>Digite para consultar outro rastreador</small>
         </label>
-        <section class="serial-os-lookup hidden" id="serialOsLookupHome" aria-live="polite"></section>
-        <section class="home-tests-panel" aria-labelledby="homeTestsTitle">
-          <header>
-            <div>
-              <h2 id="homeTestsTitle">Testes de hardware</h2>
-              <p id="homeTestProgress">0 de 5 realizados</p>
-            </div>
-            <button type="button" class="secondary" id="homeOpenTests">Abrir testes</button>
-          </header>
-          <ul aria-label="Resumo dos testes">
-            <li data-home-test="camera"><span>Câmera</span><strong>Pendente</strong></li>
-            <li data-home-test="keyboard"><span>Teclado</span><strong>Pendente</strong></li>
-            <li data-home-test="audio"><span>Som e microfone</span><strong>Pendente</strong></li>
-            <li data-home-test="screen"><span>Tela</span><strong>Pendente</strong></li>
-            <li data-home-test="trackpad"><span>Trackpad</span><strong>Pendente</strong></li>
-          </ul>
-        </section>
+        </aside>
         </div>
 
         <aside class="panel workflow-panel" aria-labelledby="workflowTitle">
           <div class="workflow-head">
-            <div><span class="panel-eyebrow">RESUMO DA BANCADA</span><h2 id="workflowTitle">Andamento</h2></div>
+            <div><h2 id="workflowTitle">Andamento</h2></div>
             <span class="workflow-overall" id="workflowOverall">0 de 4 etapas</span>
           </div>
 
@@ -117,7 +102,7 @@
               <span class="workflow-marker"><svg aria-hidden="true" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg><b>01</b></span><div><small>Leitura</small><strong id="workflowReadStatus">Verificando</strong></div><i></i>
             </button>
             <button type="button" class="workflow-step" id="workflowTests" data-workflow-action="tests">
-              <span class="workflow-marker"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 6h10M10 12h10M10 18h10M4 6l1.5 1.5L8 5M4 12l1.5 1.5L8 11M4 18l1.5 1.5L8 17"></path></svg><b>02</b></span><div><small>Testes</small><strong id="workflowTestsStatus">0 de 5</strong></div><i></i>
+              <span class="workflow-marker"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M10 6h10M10 12h10M10 18h10M4 6l1.5 1.5L8 5M4 12l1.5 1.5L8 11M4 18l1.5 1.5L8 17"></path></svg><b>02</b></span><div><small>Testes</small><strong id="workflowTestsStatus">0 de 9</strong></div><i></i>
             </button>
             <button type="button" class="workflow-step" id="workflowOs" data-workflow-action="create-os">
               <span class="workflow-marker"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v5h5M9 13h6M9 17h6"></path></svg><b>03</b></span><div><small>Rastreador</small><strong id="workflowOsStatus">Selecionado</strong></div><i></i>
@@ -128,9 +113,14 @@
           </div>
 
           <section class="next-action-card">
-            <div><span>PRÓXIMA AÇÃO</span><strong id="nextActionTitle">Continuar atendimento</strong><small id="nextActionDescription">Confira a etapa indicada.</small></div>
+            <div><strong id="nextActionTitle">Continuar atendimento</strong><small id="nextActionDescription">Confira a etapa indicada.</small></div>
             <button type="button" class="primary" id="nextActionButton">Continuar</button>
           </section>
+
+
+
+        </aside>
+      </section>
 
           <section class="operational-alerts hidden" id="operationalAlerts" aria-live="polite">
             <div class="operational-alert-head">
@@ -141,7 +131,22 @@
             <ul id="operationalAlertsList"></ul>
           </section>
 
-        </aside>
+      <section class="serial-os-lookup hidden" id="serialOsLookupHome" aria-live="polite"></section>
+      <section class="home-tests-panel" aria-labelledby="homeTestsTitle">
+        <header>
+          <div>
+            <h2 id="homeTestsTitle">Testes de hardware</h2>
+            <p id="homeTestProgress">0 de 9 preenchidos</p>
+          </div>
+          <button type="button" class="secondary" id="homeOpenTests">Abrir testes</button>
+        </header>
+        <ul aria-label="Resumo dos testes">
+          <li data-home-test="camera"><span>Câmera</span><strong>Pendente</strong></li>
+          <li data-home-test="keyboard"><span>Teclado</span><strong>Pendente</strong></li>
+          <li data-home-test="audio"><span>Som</span><strong>Pendente</strong></li>
+          <li data-home-test="screen"><span>Tela</span><strong>Pendente</strong></li>
+          <li data-home-test="trackpad"><span>Trackpad</span><strong>Pendente</strong></li>
+        </ul>
       </section>
 
       <section class="panel print-history-panel" id="printHistoryPanel" aria-labelledby="printHistoryTitle">
@@ -151,15 +156,16 @@
             <div>
               <span class="panel-eyebrow">REGISTRO LOCAL</span>
               <h2 id="printHistoryTitle">Histórico de etiquetas</h2>
-              <p>Últimas impressões confirmadas neste computador.</p>
+              <p>Impressões registradas neste histórico local.</p>
             </div>
           </div>
           <div class="print-history-actions">
             <span class="print-history-count" id="printHistoryCount">0 impressões</span>
-            <button type="button" class="secondary hidden" id="reprintLast">Reimprimir última</button>
+            <button type="button" class="secondary hidden" id="reprintLast">Conferir última etiqueta</button>
           </div>
         </header>
-        <p class="print-history-empty" id="printHistoryEmpty">Nenhuma etiqueta foi impressa ainda.</p>
+        <label class="history-search">Buscar no histórico<input id="printHistorySearch" type="search" placeholder="Serial, rastreador ou modelo" autocomplete="off"></label>
+        <p class="print-history-empty" id="printHistoryEmpty">Nenhuma impressão registrada neste histórico.</p>
         <ol class="print-history-list hidden" id="printHistoryList" aria-live="polite"></ol>
         <span class="hidden" id="lastPrintValue">Nenhuma nesta sessão</span>
         <span class="hidden" id="lastPrintMeta">A impressão mais recente aparecerá aqui.</span>
@@ -168,7 +174,7 @@
 
     <section class="app-view labels-view hidden" id="labelsView">
       <header class="page-intro">
-        <div class="label-page-heading"><h2>Etiquetas</h2><p>Revise os dados e imprima com segurança.</p></div>
+        <div class="label-page-heading"><h2>Etiquetas</h2><p>Confira os dados da etiqueta antes de imprimir.</p></div>
         <div class="label-page-meta">
           <span class="label-size-chip"><strong id="labelPageType">Notebook</strong><i>·</i>80 × 50 mm</span>
         </div>
@@ -180,11 +186,12 @@
             <div class="label-preview-title"><div><strong>Prévia 80 × 50 mm</strong><small>Atualizada automaticamente</small></div></div>
             <div class="label-preview-meta"><span id="previewMetaGrade">Grade A</span><span id="previewMetaOs">Rastreador C000235</span></div>
           </div>
+          <label class="label-zoom-control">Zoom da prévia<select id="labelPreviewZoom"><option value="1">Ajustar</option><option value="1.25">125%</option><option value="1.5">150%</option><option value="2">200%</option></select></label>
           <div class="thermal-label-stage">
             <div class="preview-canvas-head"><span>Etiqueta térmica · 80 × 50 mm</span><small>Visualização proporcional</small></div>
-            <article class="thermal-label" aria-label="Previa da etiqueta termica">
+            <article class="thermal-label" aria-label="Prévia da etiqueta térmica">
               <header class="thermal-label-head">
-                <img src="logo.png" alt="CAIJ Informatica">
+                <img src="logo.png" alt="CAIJ Informática">
                 <div><span>EQUIPAMENTO</span><strong id="labelPreviewModel">Apple MacBook</strong></div>
                 <strong class="thermal-grade" id="labelPreviewGrade">GRADE A</strong>
               </header>
@@ -203,7 +210,7 @@
                     <div><dt>BAT</dt><dd id="labelPreviewBattery">BATERIA</dd></div>
                   </dl>
                 </div>
-                <div class="thermal-qr" aria-hidden="true"><i></i></div>
+                <div id="labelPreviewQr" class="thermal-qr" title="QR de demonstração. O link da ficha é gerado ao imprimir."></div>
               </section>
               <section class="thermal-observation hidden" id="thermalObservation"><strong>OBS</strong><span id="labelPreviewObservation"></span></section>
               <footer class="thermal-label-foot"><span id="labelPreviewDate">00/00/00</span></footer>
@@ -213,7 +220,7 @@
             <section class="print-feedback" aria-label="Acompanhamento da impressão">
               <div id="printProgress" class="print-progress" role="status" aria-live="polite" hidden></div>
               <div class="print-diagnostics-head">
-                <strong>Conexões da etiqueta</strong>
+                <strong>Conexões para impressão</strong>
                 <button type="button" id="checkPrintConnections" class="secondary">Verificar conexões</button>
               </div>
               <div id="printDiagnostics" class="print-diagnostics" role="status" aria-live="polite">
@@ -238,7 +245,7 @@
 
         <section class="panel print-panel">
         <div class="panel-head print-panel-head">
-          <div class="print-panel-title"><div><h2>Revisar e imprimir</h2><small>Confira somente o que muda nesta etiqueta.</small></div></div>
+          <div class="print-panel-title"><div><h2>Revisar e imprimir</h2><small>Confira a classificação, os dados e as observações.</small></div></div>
           <label class="toggle">
             <input type="checkbox" id="includeOs" checked>
             <span>Incluir rastreador</span>
@@ -247,7 +254,7 @@
 
         <section class="print-command-bar" aria-label="Ações de impressão">
           <div class="print-command-copy">
-            <strong>Etiqueta pronta para envio</strong>
+            <strong>Enviar etiqueta para impressão</strong>
             <small>Confira a prévia antes de imprimir.</small>
           </div>
           <div class="actions">
@@ -264,7 +271,7 @@
             <select id="labelEquipmentType" aria-label="Tipo do equipamento da etiqueta">
               <option value="Notebook">Notebook</option>
               <option value="Desktop">Desktop</option>
-              <option value="Celular">Celular / Tablet</option>
+              <option value="Celular">Celular / tablet</option>
               <option value="Monitor">Monitor</option>
             </select>
           </label>
@@ -281,11 +288,11 @@
             <label class="label-data-field" data-label-types="Notebook Desktop Celular">RAM<input name="ram" autocomplete="off"></label>
             <label class="label-data-field" data-label-types="Notebook Desktop Celular">Armazenamento<input name="disco" autocomplete="off"></label>
             <label class="label-data-field" data-label-types="Notebook Desktop">GPU<input name="gpu" autocomplete="off"></label>
-            <label class="label-data-field" data-label-types="Notebook Celular">Bateria / saúde<input name="bateria" autocomplete="off"></label>
+            <label class="label-data-field" data-label-types="Notebook Celular">Saúde da bateria<input name="bateria" autocomplete="off"></label>
             <label class="label-data-field" data-label-types="Celular">IMEI<input name="imei" inputmode="numeric" autocomplete="off"></label>
             <label class="label-data-field" data-label-types="Celular">Ciclos<input name="ciclos" inputmode="numeric" autocomplete="off"></label>
-            <label class="label-data-field hidden" data-label-types="Monitor">Polegadas<input name="monitorTamanho" autocomplete="off" placeholder='Ex.: 24"'></label>
-            <label class="label-data-field hidden" data-label-types="Monitor">Entradas<input name="monitorEntradas" autocomplete="off" placeholder="Ex.: HDMI / DisplayPort"></label>
+            <label class="label-data-field hidden" data-label-types="Monitor">Tamanho da tela (polegadas)<input name="monitorTamanho" autocomplete="off" placeholder='Ex.: 24"'></label>
+            <label class="label-data-field hidden" data-label-types="Monitor">Entradas de vídeo<input name="monitorEntradas" autocomplete="off" placeholder="Ex.: HDMI / DisplayPort"></label>
           </div>
           <div class="label-edit-actions">
             <button type="button" class="secondary" id="cancelLabelEditor">Cancelar</button>
@@ -299,14 +306,14 @@
             <button type="button" data-grade="A" class="grade active"><strong>A</strong><span>Perfeito</span></button>
             <button type="button" data-grade="B" class="grade"><strong>B</strong><span>Detalhes</span></button>
             <button type="button" data-grade="C" class="grade"><strong>C</strong><span>Grade C</span></button>
-            <button type="button" data-grade="T" class="grade"><strong>T</strong><span>Triagem</span></button>
+            <button type="button" data-grade="D" class="grade"><strong>D</strong><span>Grade D</span></button>
             <button type="button" data-grade="RMA" class="grade"><strong>RMA</strong><span>Defeitos</span></button>
           </div>
         </fieldset>
 
         <fieldset class="service-checklist" id="labelServiceChecklist">
           <legend>Serviços realizados</legend>
-          <p>Marque apenas o que foi feito neste equipamento.</p>
+          <p>Marque os serviços realizados. A aprovação dos testes é preenchida após a confirmação do técnico.</p>
           <div class="service-options">
             <label><input type="checkbox" value="system"><span>Sistema instalado</span></label>
             <label><input type="checkbox" value="cleaning"><span>Limpeza interna</span></label>
@@ -314,12 +321,12 @@
           </div>
         </fieldset>
         <label class="obs-label">
-          <span>Observações <small>Detalhes e avarias obrigatórios para grades B e C</small></span>
+          <span>Observações <small id="labelObservationRequirement">Obrigatório nas grades B, C e D: descreva os detalhes ou as avarias.</small></span>
           <textarea id="obs" rows="3" placeholder="Ex.: risco na tampa, carregador substituído"></textarea>
         </label>
         <div class="observation-preview" aria-live="polite">
           <span>Texto da etiqueta</span>
-          <output id="labelObservationPreview">Nenhum serviço ou observação informado.</output>
+          <output id="labelObservationPreview">Nenhum serviço selecionado ou observação informada.</output>
           <small id="labelObservationLimit">Até 180 caracteres e 3 linhas na etiqueta.</small>
         </div>
 
@@ -335,7 +342,7 @@
           <div>
             <p class="dialog-eyebrow">ALTERTAG / RASTREADOR</p>
             <h2 id="createOsTitle">Cadastrar rastreador</h2>
-            <p class="create-os-subtitle">Vincule o técnico, selecione o produto e revise os dados antes de criar.</p>
+            <p class="create-os-subtitle">Selecione o técnico e o produto e confira os dados antes de cadastrar.</p>
           </div>
         </div>
         <div class="create-os-head-actions">
@@ -344,7 +351,7 @@
             <input id="createCurrentOs" value="C000235" inputmode="numeric" autocomplete="off" aria-label="Alterar rastreador atual">
             <small>Digite para consultar</small>
           </div>
-          <button type="button" class="icon-btn" id="closeCreateOs">Voltar ao Menu</button>
+          <button type="button" class="icon-btn" id="closeCreateOs">Voltar ao menu</button>
         </div>
       </header>
 
@@ -352,7 +359,7 @@
         <div class="create-flow-item"><span>01</span><div><strong>Técnico</strong><small>Responsável</small></div></div>
         <div class="create-flow-item"><span>02</span><div><strong>Produto</strong><small>Catálogo AlterTag</small></div></div>
         <div class="create-flow-item"><span>03</span><div><strong>Dados</strong><small>Conferência final</small></div></div>
-        <div class="create-flow-item create-flow-finish"><span>04</span><div><strong>Criar rastreador</strong><small>Enviar ao sistema</small></div></div>
+        <div class="create-flow-item create-flow-finish"><span>04</span><div><strong>Criar rastreador</strong><small>Enviar ao AlterTag</small></div></div>
       </nav>
 
       <section class="serial-os-lookup hidden" id="serialOsLookupCreate" aria-live="polite"></section>
@@ -361,7 +368,7 @@
       <section class="create-section create-step-card">
         <header class="create-step-head">
           <span class="create-step-index">01</span>
-          <div><span class="field-title">Técnico responsável</span><small>Selecione quem realizará o atendimento.</small></div>
+          <div><span class="field-title">Técnico responsável</span><small>Selecione o técnico responsável pelo atendimento.</small></div>
         </header>
         <div class="technician-grid" id="technicianGrid">
           <button type="button" data-technician="Vitor">Vitor</button>
@@ -404,7 +411,7 @@
             <option>GRADE A</option>
             <option>GRADE B</option>
             <option>GRADE C</option>
-            <option selected>GRADE T - TRIAGEM</option>
+            <option selected>GRADE D</option>
             <option>RMA</option>
           </select>
         </label>
@@ -414,12 +421,12 @@
         <div class="current-config-copy">
           <span>CONFIGURAÇÕES ATUAIS</span>
           <strong id="currentConfigValue">CONFIG: dados ainda não identificados.</strong>
-          <small>Esta linha será acrescentada automaticamente à observação do rastreador.</small>
+          <small>A configuração será incluída automaticamente na observação do rastreador.</small>
         </div>
-        <button type="button" class="secondary" id="toggleConfigEditor">Trocar</button>
+        <button type="button" class="secondary" id="toggleConfigEditor">Editar configuração</button>
         <div class="config-inline-editor hidden" id="configInlineEditor">
           <label>CPU<input id="configCpu"></label>
-            <label>Armazenamento<input id="configDisk" placeholder="Ex.: 256GB SSD + 500GB HDD" title="Separe cada disco com +, por exemplo: 256GB SSD + 500GB HDD"></label>
+            <label>Armazenamento<input id="configDisk" placeholder="Ex.: 256 GB SSD + 500 GB HDD" title="Separe os discos com +. Ex.: 256 GB SSD + 500 GB HDD"></label>
           <label>RAM<input id="configRam"></label>
           <label>GPU<input id="configGpu"></label>
           <button type="button" class="primary" id="applyConfigEditor">Aplicar configuração</button>
@@ -428,15 +435,15 @@
 
       <fieldset class="service-checklist create-service-checklist" id="createServiceChecklist">
         <legend>Serviços realizados</legend>
-        <p>Marque apenas o que foi feito neste equipamento.</p>
+        <p>Marque os serviços realizados. A aprovação dos testes é preenchida após a confirmação do técnico.</p>
         <div class="service-options">
           <label><input type="checkbox" value="system"><span>Sistema instalado</span></label>
           <label><input type="checkbox" value="cleaning"><span>Limpeza interna</span></label>
           <label><input type="checkbox" value="tests"><span>Testes aprovados</span></label>
         </div>
       </fieldset>
-      <label class="create-observation"><span>Observações <small>Opcional</small></span>
-        <textarea id="createObservation" rows="2" placeholder="Adicione somente detalhes específicos desta máquina"></textarea>
+      <label class="create-observation"><span>Observações <small id="createObservationRequirement">Obrigatório na Grade D: descreva o detalhe do equipamento.</small></span>
+        <textarea id="createObservation" rows="2" placeholder="Descreva os detalhes ou as avarias deste equipamento"></textarea>
         <small id="automaticObservationHint">Data, horário, técnico e configuração serão incluídos automaticamente.</small>
       </label>
       <div class="observation-preview create-observation-preview" aria-live="polite">
@@ -446,6 +453,7 @@
       </section>
       </div>
 
+      <p class="create-confirm-summary" id="createConfirmSummary"></p>
       <footer class="dialog-actions create-os-actions">
         <p class="create-os-status" id="createOsStatus">Selecione o técnico e o produto.</p>
         <div>
@@ -462,73 +470,67 @@
         <div class="tests-head-copy">
           <div>
             <h2 id="testsTitle">Central de testes Mac</h2>
-            <p>Execute cada etapa e confirme o resultado observado.</p>
+            <p id="testsHeadSerial"></p>
           </div>
         </div>
         <div class="tests-head-tools">
-          <button type="button" class="icon-btn" id="closeTests">Voltar ao Menu</button>
+          <button type="button" class="secondary" id="openAestheticTriage">Avaliação estética</button>
+          <div class="tests-completion"><strong id="testsCompletion">0 de 9</strong><div class="tests-progress" aria-label="Progresso dos testes"><span id="testsProgress"></span></div></div>
+          <button type="button" class="icon-btn" id="closeTests">Voltar ao menu</button>
         </div>
       </header>
 
-      <section class="tests-overview" aria-label="Resumo dos testes">
-        <div class="tests-completion"><strong id="testsCompletion">0 de 5 concluídos</strong><div class="tests-progress" aria-label="Progresso dos testes"><span id="testsProgress"></span></div></div>
-        <div class="test-counter passed"><span>Passou</span><strong id="testsPassed">0</strong></div>
-        <div class="test-counter failed"><span>Falhou</span><strong id="testsFailed">0</strong></div>
-        <div class="test-counter pending"><span>Pendente</span><strong id="testsPending">5</strong></div>
-      </section>
+      <div class="tests-body">
+        <nav class="tests-rail" aria-label="Testes"><ol id="testRail"></ol></nav>
 
-      <section class="test-list" id="testList">
-        <div class="test-list-head" aria-hidden="true"><span>Teste</span><span>Estado</span><span>Ações</span></div>
-        <article class="test-row" data-test="camera">
-          <div class="test-identity"><span class="test-number" aria-hidden="true">01</span><div><h3>Camera</h3><p>Validar imagem, foco e captura.</p></div></div>
-          <strong class="test-state">Pendente</strong>
-          <div class="test-actions"><button type="button" data-action="open">Abrir teste</button><button type="button" data-action="pass">Passou</button><button type="button" data-action="fail">Falhou</button><button type="button" data-action="clear">Limpar</button></div>
-        </article>
-        <article class="test-row" data-test="keyboard">
-          <div class="test-identity"><span class="test-number" aria-hidden="true">02</span><div><h3>Teclado</h3><p>Inclui Esc, F1-F12 e teclas de pontuacao.</p></div></div>
-          <strong class="test-state">Pendente</strong>
-          <div class="test-actions"><button type="button" data-action="open">Abrir teste</button><button type="button" data-action="pass">Passou</button><button type="button" data-action="fail">Falhou</button><button type="button" data-action="clear">Limpar</button></div>
-        </article>
-        <article class="test-row" data-test="audio">
-          <div class="test-identity"><span class="test-number" aria-hidden="true">03</span><div><h3>Som e microfone</h3><p>Ouvir o tom e validar a entrada de voz.</p></div></div>
-          <strong class="test-state">Pendente</strong>
-          <div class="test-actions"><button type="button" data-action="open">Abrir teste</button><button type="button" data-action="pass">Passou</button><button type="button" data-action="fail">Falhou</button><button type="button" data-action="clear">Limpar</button></div>
-        </article>
-        <article class="test-row" data-test="screen">
-          <div class="test-identity"><span class="test-number" aria-hidden="true">04</span><div><h3>Tela / Dead Pixel</h3><p>Inspecionar cores, brilho e pixels.</p></div></div>
-          <strong class="test-state">Pendente</strong>
-          <div class="test-actions"><button type="button" data-action="open">Abrir teste</button><button type="button" data-action="pass">Passou</button><button type="button" data-action="fail">Falhou</button><button type="button" data-action="clear">Limpar</button></div>
-        </article>
-        <article class="test-row" data-test="trackpad">
-          <div class="test-identity"><span class="test-number" aria-hidden="true">05</span><div><h3 id="pointingDeviceTitle">Trackpad</h3><p id="pointingDeviceDescription">Validar movimento, clique e rolagem.</p></div></div>
-          <strong class="test-state">Pendente</strong>
-          <div class="test-actions"><button type="button" data-action="open">Abrir teste</button><button type="button" data-action="pass">Passou</button><button type="button" data-action="fail">Falhou</button><button type="button" data-action="clear">Limpar</button></div>
-        </article>
-      </section>
-
-      <section class="test-workspace hidden" id="testWorkspace" aria-live="polite">
-        <header><div><span>TESTE ABERTO</span><h3 id="activeTestTitle">Teste</h3></div><button type="button" class="icon-btn" id="closeActiveTest">Encerrar teste</button></header>
-        <p id="activeTestHelp"></p>
-        <footer class="active-test-actions">
-          <div class="active-test-progress">
-            <span id="activeTestStep">TESTE 1 DE 5</span>
-            <small id="activeTestNextLabel">Próximo: Teclado</small>
+        <section class="test-workspace" id="testWorkspace">
+          <section id="aestheticTriage" class="aesthetic-triage hidden" aria-label="Avaliação estética do equipamento"></section>
+          <div id="testPanel">
+            <header><h3 id="activeTestTitle">Teste</h3><span id="activeTestStep">1 de 9</span></header>
+            <p id="activeTestHelp"></p>
+            <div id="activeTestBody"></div>
+            <section id="hardwareChecklist" class="hardware-checklist" aria-labelledby="hardwareChecklistTitle">
+              <header><h3 id="hardwareChecklistTitle">Checklist</h3><p>Marque cada item. Reprovado e Não testado pedem justificativa.</p></header>
+              <div id="hardwareChecklistItems"></div>
+              <div id="usbPortTools" class="hidden usb-port-add"><button type="button" class="secondary" data-usb-add="USB">+1 USB</button><button type="button" class="secondary" data-usb-add="USB-C">+1 USB-C</button></div>
+              <p id="hardwareChecklistStatus" role="status"></p>
+            </section>
           </div>
-          <div class="active-test-buttons">
-            <button type="button" class="secondary" id="skipActiveTest">Pular</button>
-            <button type="button" class="active-test-fail" id="failAndNextTest">Reprovado e próximo</button>
-            <button type="button" class="active-test-pass" id="passAndNextTest">Aprovado e próximo</button>
-          </div>
-        </footer>
-        <div id="activeTestBody"></div>
-      </section>
 
-      <footer class="tests-footer">
-        <div class="tests-report"><span>Resumo automatico</span><strong id="testsReport">TESTES: PENDENTE</strong><small id="testsActionStatus" aria-live="polite"></small></div>
-        <div class="tests-footer-actions">
-          <button type="button" class="secondary" id="resetTests">Limpar todos</button>
-          <button type="button" class="secondary" id="copyTestsReport">Copiar resumo</button>
-          <button type="button" class="primary hidden" id="finishTests">Testes finalizados</button>
+          <section id="testReviewPanel" class="hidden" aria-labelledby="testReviewTitle">
+            <header><h3 id="testReviewTitle">Revisão e confirmação</h3><strong id="testsReport" aria-live="polite">Aguardando testes</strong></header>
+            <ul id="testsReportDetails" aria-label="Resultado de cada teste"></ul>
+            <section class="test-confirmation" aria-labelledby="testConfirmationTitle">
+              <h3 id="testConfirmationTitle">Confirmação do técnico</h3>
+              <p>A confirmação registra o nome informado pelo técnico e não exige senha.</p>
+              <div class="test-confirmation-fields">
+                <label>Técnico responsável<input id="testTechnician" maxlength="100" autocomplete="name" placeholder="Nome do técnico"></label>
+                <label>Serial do equipamento<input id="testEquipmentSerial" readonly></label>
+              </div>
+              <label>Observações gerais dos testes<textarea id="testGeneralNotes" rows="2" maxlength="2000" placeholder="Detalhes adicionais observados durante os testes"></textarea></label>
+              <label class="test-attestation"><input id="testAttestation" type="checkbox">Confirmo que realizei os testes indicados, identifiquei os itens que não se aplicam e descrevi corretamente as falhas e os itens não testados.</label>
+              <label id="testConfirmationInstruction" for="testConfirmationWord">Digite APROVADO para confirmar os resultados.</label>
+              <div class="test-confirmation-entry"><input id="testConfirmationWord" autocomplete="off" spellcheck="false" placeholder="APROVADO"></div>
+              <p id="testConfirmationStatus" role="status"></p>
+              <details><summary>Relatórios locais confirmados</summary><ul id="testConfirmationHistory"></ul></details>
+            </section>
+            <div class="tests-review-tools">
+              <button type="button" class="secondary" id="copyTestsReport">Copiar relatório</button>
+              <button type="button" class="secondary" id="resetTests">Limpar resultados</button>
+              <small id="testsActionStatus" aria-live="polite"></small>
+            </div>
+          </section>
+        </section>
+      </div>
+
+      <footer class="tests-action-bar" id="testActionBar">
+        <p id="activeTestBlockers" role="status"></p>
+        <div class="active-test-buttons">
+          <button type="button" class="secondary" id="skipActiveTest">Pular</button>
+          <button type="button" class="active-test-fail" id="failAndNextTest">Reprovar</button>
+          <button type="button" class="active-test-pass" id="passAndNextTest">Aprovar tudo e próximo →</button>
+          <button type="button" id="confirmHardwareTests" class="primary hidden">Confirmar relatório</button>
+          <button type="button" class="primary hidden" id="finishTests">Concluir e voltar</button>
         </div>
       </footer>
     </section>
@@ -545,7 +547,7 @@
         <div>
           <p>TESTE DE HARDWARE</p>
           <h2 id="cameraPermissionTitle">Ativar câmera para o teste?</h2>
-          <span id="cameraPermissionDescription">Precisamos mostrar a imagem ao vivo para você conferir nitidez, enquadramento e estabilidade.</span>
+          <span id="cameraPermissionDescription">Ative a câmera para conferir a nitidez, o enquadramento e a estabilidade da imagem ao vivo.</span>
         </div>
       </header>
 
@@ -560,28 +562,38 @@
         <button type="button" class="secondary" id="cancelCameraPermission">Agora não</button>
         <button type="button" class="primary" id="confirmCameraPermission"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5A2.5 2.5 0 0 1 6.5 6h7A2.5 2.5 0 0 1 16 8.5v7a2.5 2.5 0 0 1-2.5 2.5h-7A2.5 2.5 0 0 1 4 15.5z"></path><path d="m16 10 4-2v8l-4-2z"></path></svg>Permitir e iniciar</button>
       </footer>
-      <small class="media-browser-note">Esta é a única confirmação necessária dentro do InfoNotebook.</small>
+      <small class="media-browser-note">Após autorizar, confira a imagem e registre o resultado no checklist.</small>
     </div>
   </dialog>
 
-  <dialog class="screen-test-dialog" id="screenTestDialog" aria-label="Teste de tela e dead pixel">
+  <dialog class="app-detail-dialog" id="historyReviewDialog" aria-labelledby="historyReviewTitle">
+    <header><h2 id="historyReviewTitle">Conferir etiqueta do histórico</h2><button type="button" id="closeHistoryReview">Fechar</button></header>
+    <div id="historyReviewContent"></div>
+    <p class="dialog-note">Compare os dados com o equipamento antes de preparar outra etiqueta. Esta consulta não altera o atendimento nem imprime uma etiqueta.</p>
+    <button type="button" id="historyGoLabels">Ir para a etiqueta atual</button>
+  </dialog>
+  <dialog class="app-detail-dialog" id="appInfoDialog" aria-labelledby="appInfoTitle">
+    <header><h2 id="appInfoTitle">Versão e atualizações</h2><button type="button" id="closeAppInfo">Fechar</button></header>
+    <dl class="app-info-grid"><div><dt>Versão instalada</dt><dd id="appInstalledVersion">Não informada</dd></div><div><dt>Versão registrada em</dt><dd id="appVersionRecorded">Data não informada</dd></div><div><dt>Última consulta nesta sessão</dt><dd id="appLastChecked">Ainda não consultada</dd></div><div><dt>Versão disponível</dt><dd id="appLatestVersion">Não consultada</dd></div></dl>
+    <p id="appUpdateResult" role="status">Consulte o servidor para verificar a versão disponível.</p>
+    <button type="button" class="primary" id="checkAppUpdates">Verificar atualizações</button>
+    <p class="dialog-note">Esta ação apenas consulta a versão disponível. A atualização dos arquivos é feita pelo inicializador ao abrir o aplicativo.</p>
+  </dialog>
+  <dialog class="screen-test-dialog" id="screenTestDialog" aria-label="Teste de tela e pixels">
     <div class="screen-test-controls">
-      <span>Procure pixels presos ou manchas</span>
+      <span>Confira se há pontos luminosos, linhas ou manchas</span>
       <div id="screenColorButtons">
         <button type="button" data-color="#ffffff">Branco</button>
         <button type="button" data-color="#000000">Preto</button>
-        <button type="button" data-color="#ff0000">Vermelho</button>
-        <button type="button" data-color="#00d447">Verde</button>
-        <button type="button" data-color="#0057ff">Azul</button>
       </div>
-      <button type="button" id="closeScreenTest">Sair do teste</button>
+      <button type="button" id="closeScreenTest">Voltar ao checklist</button>
     </div>
   </dialog>
 
   <section class="os-alert hidden" id="osAlert" role="alertdialog" aria-modal="true" aria-labelledby="osAlertTitle">
     <div class="os-alert-card">
       <div class="alert-signal" aria-hidden="true"><span></span></div>
-      <p class="alert-eyebrow">SINCRONIZACAO EM TEMPO REAL</p>
+      <p class="alert-eyebrow">SINCRONIZAÇÃO EM TEMPO REAL</p>
       <h2 id="osAlertTitle">Novo rastreador criado</h2>
       <p class="alert-copy" id="alertCopy"><span id="alertCopySuffix">A ordem foi criada em outra estação.</span></p>
       <div class="alert-created">
@@ -589,7 +601,7 @@
         <strong id="alertCreatedOs">C000000</strong>
       </div>
       <div class="alert-next">
-        <span>Próxima disponível</span>
+        <span>Próximo rastreador disponível</span>
         <strong id="alertNextOs">C000001</strong>
       </div>
       <div class="alert-actions">
@@ -602,8 +614,13 @@
   <script src="runtime-loader.js"></script>
   <script src="storage.js"></script>
   <script src="observation.js"></script>
+  <script src="test-checklist.js"></script>
+  <script src="aesthetic-triage.js"></script>
   <script src="portable.js"></script>
   <script src="serial-os.js"></script>
+  <script src="qr-encoder.js"></script>
+  <script src="qr-preview.js"></script>
+  <script src="animated-gradient.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

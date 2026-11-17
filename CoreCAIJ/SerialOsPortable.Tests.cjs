@@ -9,6 +9,7 @@ const window = {
   CAIJ_NATIVE_RUNTIME: { platform: 'windows', osNumero: 3450, info: { serial: '7NKF1G3' }, serverUrl: 'http://nas-caij:9100' },
 };
 vm.runInNewContext(fs.readFileSync('CoreCAIJ/mac-ui/storage.js', 'utf8'), { window });
+vm.runInNewContext(fs.readFileSync('CoreCAIJ/mac-ui/observation.js', 'utf8'), { window });
 async function fetch(url, options = {}) {
   requests.push(url);
   if (options.body) sent.push({ url, body: JSON.parse(options.body) });

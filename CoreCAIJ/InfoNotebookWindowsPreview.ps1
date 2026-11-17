@@ -264,6 +264,120 @@ function Send-LocalJsonResponse {
     Send-LocalBytesResponse -Client $Client -StatusCode $StatusCode -Bytes ([Text.Encoding]::UTF8.GetBytes($json)) -ContentType 'application/json; charset=utf-8'
 }
 
+function Get-LocalUsbDevices {
+    # Apenas dispositivos presentes cujo identificador USB possui VID/PID. Hubs internos
+    # nao servem como prova de que o tecnico conectou algo na porta externa.
+    $entities = @(Get-CimInstance -ClassName Win32_PnPEntity -Filter "PNPDeviceID LIKE 'USB%'" -ErrorAction Stop)
+    $devices = @($entities | Where-Object {
+        $_.ConfigManagerErrorCode -eq 0 -and
+        [string]$_.PNPDeviceID -match '^USB\\VID_[0-9A-F]{4}&PID_[0-9A-F]{4}' -and
+        ([string]$_.Name + ' ' + [string]$_.PNPDeviceID) -notmatch '(?i)\b(?:root|generic|super.?speed)?\s*hub\b|ROOT_HUB'
+    } | ForEach-Object {
+        $instanceId = [string]$_.PNPDeviceID
+        $locationPath = ''
+        try {
+            $property = Get-PnpDeviceProperty -InstanceId $instanceId -KeyName 'DEVPKEY_Device_LocationPaths' -ErrorAction Stop
+            $locationPath = @($property.Data | Where-Object { [string]$_ -match '(?i)USBROOT\([^)]*\)#USB\(\d+\)' } | Select-Object -First 1)[0]
+            $locationPath = [string]$locationPath
+        } catch { $locationPath = '' }
+        [pscustomobject]@{
+            instanceId = $instanceId
+            name = [string]$_.Name
+            locationPath = $locationPath
+            portKey = $locationPath
+        }
+    })
+    return $devices
+}
+
+function Get-LocalTestRecordsPath {
+    Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'CAIJ\Testes\registros.json'
+}
+function Read-LocalTestRecords {
+    param([string]$Path = (Get-LocalTestRecordsPath))
+    if (-not (Test-Path -LiteralPath $Path)) { return @() }
+    try {
+        $loaded = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($Path))
+        foreach ($entry in $loaded) { Write-Output $entry }
+    }
+    catch { throw 'Historico local ilegivel; preserve registros.json e restaure o backup antes de salvar.' }
+}
+function Save-LocalTestRecord {
+    param($Record, [string]$Path = (Get-LocalTestRecordsPath))
+    foreach ($key in @('technician','serial','confirmedAt','fingerprint')) {
+        if ([string]::IsNullOrWhiteSpace([string]$Record.$key)) { throw "Campo obrigatorio: $key" }
+    }
+    $date = [datetimeoffset]::MinValue
+    if (-not [datetimeoffset]::TryParse([string]$Record.confirmedAt, [ref]$date)) { throw 'Data de confirmacao invalida.' }
+    if ($Record.mode -notin @('APROVADO','REGISTRADO')) { throw 'Confirmacao invalida.' }
+    $items = @($Record.items)
+    if (-not $items.Count) { throw 'Inclua os itens verificados.' }
+    $requiredIds = @('camera.image','camera.capture','keyboard.keys','audio.speakers','screen.pixels','screen.artifacts','trackpad.movement','trackpad.buttons','usb.inventory','charger.connectors','charger.firmness','network.ethernet','network.wifi','hdmi.detection','hdmi.image')
+    $ids = @{}
+    $usbPorts = 0
+    $seenUsbPortKeys = @{}
+    foreach ($item in $items) {
+        if (-not $item.id -or $ids.ContainsKey([string]$item.id)) { throw 'Identificador de item invalido ou repetido.' }
+        $ids[[string]$item.id] = $true
+        $group = ([string]$item.id -split '\.')[0]
+        if ([string]::IsNullOrWhiteSpace([string]$item.label) -or $item.testId -ne $group) { throw 'Nome ou grupo do item invalido.' }
+        if ($item.id -notin $requiredIds) {
+            if ($item.id -notmatch '^usb\.port-[1-9]\d*$') { throw 'Criterio desconhecido.' }
+            $usbPorts++
+        }
+        if ($item.result -notin @('passed','failed','untested','not_applicable')) { throw 'Item pendente ou invalido.' }
+        if ($item.result -in @('failed','untested') -and [string]::IsNullOrWhiteSpace([string]$item.notes)) { throw 'Justifique os itens com ressalvas.' }
+        if ([string]$item.id -match '^usb\.port-[1-9]\d*$' -and $item.result -eq 'passed') {
+            if ($item.evidence.source -notin @('auto','manual') -or [string]::IsNullOrWhiteSpace([string]$item.evidence.detail)) { throw 'Aprovacao da porta USB exige deteccao ou justificativa manual.' }
+            if ($item.evidence.source -eq 'auto' -and [string]::IsNullOrWhiteSpace([string]$item.evidence.portKey)) { throw 'Deteccao USB sem identificacao da porta fisica.' }
+            if ($item.evidence.source -eq 'auto') {
+                $portKey = ([string]$item.evidence.portKey).Trim()
+                if ($seenUsbPortKeys.ContainsKey($portKey)) { throw 'A mesma porta USB foi registrada mais de uma vez.' }
+                $seenUsbPortKeys[$portKey] = $true
+            }
+        }
+        if ($item.id -eq 'audio.speakers' -and $item.result -eq 'passed') {
+            if ($item.evidence.source -notin @('auto','manual') -or [string]::IsNullOrWhiteSpace([string]$item.evidence.detail)) { throw 'Aprovacao do som exige evidencia de reproducao ou justificativa manual.' }
+            if ($item.evidence.source -eq 'auto' -and $item.evidence.detail -notmatch 'esquerdo e direito') { throw 'Teste automatico de som exige os dois lados.' }
+        }
+        if ($item.id -in @('trackpad.movement','trackpad.buttons') -and $item.result -eq 'passed') {
+            if ($item.evidence.source -notin @('auto','manual') -or [string]::IsNullOrWhiteSpace([string]$item.evidence.detail)) { throw 'Aprovacao do touchpad exige deteccao ou justificativa manual.' }
+            if ($item.evidence.source -eq 'auto' -and $item.id -eq 'trackpad.movement' -and ([string]$item.evidence.detail -notmatch '^(\d+) movimentos detectados' -or [int]$Matches[1] -lt 20)) { throw 'Movimento insuficiente.' }
+            if ($item.evidence.source -eq 'auto' -and $item.id -eq 'trackpad.buttons' -and [string]$item.evidence.detail -notmatch 'esquerdo [1-9]\d*, direito [1-9]\d*') { throw 'Cliques esquerdo e direito obrigatorios.' }
+        }
+        if ($item.id -eq 'charger.connectors' -and $item.result -eq 'passed') {
+            if ($item.evidence.source -notin @('auto','manual') -or [string]::IsNullOrWhiteSpace([string]$item.evidence.detail)) { throw 'Aprovacao do carregador exige deteccao ou justificativa manual.' }
+            if ($item.evidence.source -eq 'auto' -and [string]$item.evidence.detail -notmatch 'bateria para tomada') { throw 'Reconexao do carregador nao comprovada.' }
+        }
+        if ($item.id -in @('network.ethernet','network.wifi') -and $item.result -eq 'passed') {
+            if ($item.evidence.source -notin @('auto','manual') -or [string]::IsNullOrWhiteSpace([string]$item.evidence.detail)) { throw 'Aprovacao da rede exige deteccao ou justificativa manual.' }
+            $kind = ([string]$item.id -split '\.')[1]
+            if ($item.evidence.source -eq 'auto' -and [string]$item.evidence.detail -notlike "Interface $kind conectada:*") { throw 'Interface de rede nao comprovada.' }
+        }
+        if ($Record.mode -eq 'APROVADO' -and $item.result -in @('failed','untested')) { throw 'Falha ou item nao testado impede aprovacao.' }
+    }
+    if ($usbPorts -gt 32 -or @($requiredIds | Where-Object { -not $ids.ContainsKey($_) }).Count) { throw 'Checklist incompleto ou portas USB invalidas.' }
+    if ($Record.mode -eq 'APROVADO' -and -not @($items | Where-Object result -eq 'passed').Count) { throw 'Aprovacao exige item aprovado.' }
+    $snapshot = [ordered]@{ technician=[string]$Record.technician; serial=[string]$Record.serial; items=$items; mode=[string]$Record.mode; confirmedAt=[string]$Record.confirmedAt; fingerprint=[string]$Record.fingerprint; notes=[string]$Record.notes }
+    if ($Record.PSObject.Properties['aesthetic']) {
+        if ($null -eq $Record.aesthetic -or $Record.aesthetic -isnot [pscustomobject] -and $Record.aesthetic -isnot [System.Collections.IDictionary]) { throw 'Avaliacao estetica invalida.' }
+        $snapshot['aesthetic'] = $Record.aesthetic
+    }
+    $records = New-Object 'System.Collections.Generic.List[object]'
+    foreach ($entry in @(Read-LocalTestRecords -Path $Path)) { $records.Add($entry) }
+    $records.Add([pscustomobject]$snapshot)
+    while ($records.Count -gt 100) { $records.RemoveAt(0) }
+    $directory = Split-Path -Parent $Path
+    [IO.Directory]::CreateDirectory($directory) | Out-Null
+    $pending = $Path + '.' + [guid]::NewGuid().ToString('N') + '.tmp'
+    try {
+        [IO.File]::WriteAllText($pending, (ConvertTo-Json -InputObject @($records.ToArray()) -Depth 20), (New-Object Text.UTF8Encoding($false)))
+        if ([IO.File]::Exists($Path)) { [IO.File]::Replace($pending, $Path, ($Path + '.bak')) }
+        else { [IO.File]::Move($pending, $Path) }
+    } finally { if ([IO.File]::Exists($pending)) { [IO.File]::Delete($pending) } }
+    return $snapshot
+}
+
 function Send-LocalUiFile {
     param($Client, [string]$UiDirectory, [string]$RequestPath)
     $route = ($RequestPath -split '\?')[0]
@@ -272,9 +386,13 @@ function Send-LocalUiFile {
         '/index.html' = @('index.html', 'text/html; charset=utf-8')
         '/style.css' = @('style.css', 'text/css; charset=utf-8')
         '/app.js' = @('app.js', 'text/javascript; charset=utf-8')
+        '/qr-encoder.js' = @('qr-encoder.js', 'text/javascript; charset=utf-8')
+        '/qr-preview.js' = @('qr-preview.js', 'text/javascript; charset=utf-8')
+        '/animated-gradient.js' = @('animated-gradient.js', 'text/javascript; charset=utf-8')
         '/portable.js' = @('portable.js', 'text/javascript; charset=utf-8')
         '/storage.js' = @('storage.js', 'text/javascript; charset=utf-8')
         '/observation.js' = @('observation.js', 'text/javascript; charset=utf-8')
+        '/test-checklist.js' = @('test-checklist.js', 'text/javascript; charset=utf-8')
         '/serial-os.js' = @('serial-os.js', 'text/javascript; charset=utf-8')
         '/runtime-loader.js' = @('runtime-loader.js', 'text/javascript; charset=utf-8')
         '/caij-runtime.js' = @('caij-runtime.js', 'text/javascript; charset=utf-8')
@@ -517,7 +635,8 @@ try {
         serverUrl = $server
         lastServerStatus = 'nao verificado'
         internetStatus = 'nao verificado'
-        version = "$version-preview"
+        version = $version
+        versionRecordedAt = if (Test-Path -LiteralPath $versionPath) { (Get-Item -LiteralPath $versionPath).LastWriteTimeUtc.ToString('o') } else { '' }
         localBridgeUrl = "http://127.0.0.1:$localBridgePort"
     }
     $json = $runtime | ConvertTo-Json -Depth 8 -Compress
@@ -566,14 +685,59 @@ try {
         if (-not $localBridge.Pending()) { Start-Sleep -Milliseconds 100; $edgeProcess.Refresh(); continue }
         $client = $localBridge.AcceptTcpClient()
         try {
-            $reader = New-Object IO.StreamReader($client.GetStream(), [Text.Encoding]::ASCII, $false, 1024, $true)
+            $reader = New-Object IO.StreamReader($client.GetStream(), [Text.Encoding]::UTF8, $false, 1024, $true)
             $requestLine = [string]$reader.ReadLine()
-            while (($line = $reader.ReadLine()) -ne '') { if ($null -eq $line) { break } }
+            $contentLength = 0
+            while (($line = $reader.ReadLine()) -ne '') {
+                if ($null -eq $line) { break }
+                if ($line -match '^Content-Length:\s*(\d+)') { $contentLength = [int]$Matches[1] }
+            }
             if ($requestLine -match '^OPTIONS\s+') {
                 Send-LocalJsonResponse -Client $client -StatusCode 204 -Body @{}
+            } elseif ($requestLine -match '^(GET|POST)\s+/api/test-records(?:\?|\s)') {
+                $method = $Matches[1]
+                try {
+                    if ($method -eq 'GET') { $body = @{ ok=$true; records=@(Read-LocalTestRecords) } }
+                    else {
+                        if ($contentLength -lt 1 -or $contentLength -gt 1048576) { throw 'Tamanho de registro invalido.' }
+                        $text = New-Object Text.StringBuilder
+                        $receivedBytes = 0
+                        while ($receivedBytes -lt $contentLength) {
+                            $character = $reader.Read()
+                            if ($character -lt 0) { throw 'Registro incompleto.' }
+                            [void]$text.Append([char]$character)
+                            if ([char]::IsLowSurrogate([char]$character)) { $receivedBytes += 4 }
+                            elseif (-not [char]::IsHighSurrogate([char]$character)) { $receivedBytes += [Text.Encoding]::UTF8.GetByteCount([char[]]@([char]$character)) }
+                        }
+                        $record = ConvertFrom-Json -InputObject $text.ToString()
+                        $body = @{ ok=$true; record=(Save-LocalTestRecord -Record $record) }
+                    }
+                    Send-LocalJsonResponse -Client $client -StatusCode 200 -Body $body
+                } catch { Send-LocalJsonResponse -Client $client -StatusCode 400 -Body @{ ok=$false; message=$_.Exception.Message } }
             } elseif ($requestLine -match '^POST\s+/3utools(?:\?|\s)') {
                 try { Send-LocalJsonResponse -Client $client -StatusCode 200 -Body @{ ok=$true; device=(Get-Windows3uToolsInfo) } }
                 catch { Send-LocalJsonResponse -Client $client -StatusCode 500 -Body @{ ok=$false; message=$_.Exception.Message } }
+            } elseif ($requestLine -match '^GET\s+/usb-devices(?:\?|\s)') {
+                try { Send-LocalJsonResponse -Client $client -StatusCode 200 -Body @{ ok=$true; devices=@(Get-LocalUsbDevices) } }
+                catch { Send-LocalJsonResponse -Client $client -StatusCode 500 -Body @{ ok=$false; message=$_.Exception.Message } }
+            } elseif ($requestLine -match '^GET\s+/power-status(?:\?|\s)') {
+                try {
+                    Add-Type -AssemblyName System.Windows.Forms
+                    $power = [System.Windows.Forms.SystemInformation]::PowerStatus
+                    Send-LocalJsonResponse -Client $client -StatusCode 200 -Body @{ ok=$true; acOnline=($power.PowerLineStatus -eq [System.Windows.Forms.PowerLineStatus]::Online); lineStatus=[string]$power.PowerLineStatus }
+                } catch { Send-LocalJsonResponse -Client $client -StatusCode 500 -Body @{ ok=$false; message=$_.Exception.Message } }
+            } elseif ($requestLine -match '^GET\s+/network-status(?:\?|\s)') {
+                try {
+                    $interfaces = @([System.Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() | ForEach-Object {
+                        $kind = if ($_.NetworkInterfaceType -eq [System.Net.NetworkInformation.NetworkInterfaceType]::Wireless80211) { 'wifi' }
+                            elseif ($_.NetworkInterfaceType -in @([System.Net.NetworkInformation.NetworkInterfaceType]::Ethernet,[System.Net.NetworkInformation.NetworkInterfaceType]::GigabitEthernet)) { 'ethernet' } else { '' }
+                        if (-not $kind -or ($_.Name + ' ' + $_.Description) -match '(?i)vEthernet|virtual|hyper-v|vmware|virtualbox|loopback|\bVPN\b|\bTAP\b|\bTUN\b') { return }
+                        $properties = $_.GetIPProperties()
+                        $address = @($properties.UnicastAddresses | Where-Object { $_.Address.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetwork -and -not $_.Address.ToString().StartsWith('169.254.') } | Select-Object -First 1)
+                        [pscustomobject]@{ kind=$kind; name=$_.Name; connected=($_.OperationalStatus -eq [System.Net.NetworkInformation.OperationalStatus]::Up -and $address.Count -gt 0 -and $properties.GatewayAddresses.Count -gt 0); ip=if ($address.Count) { $address[0].Address.ToString() } else { '' } }
+                    })
+                    Send-LocalJsonResponse -Client $client -StatusCode 200 -Body @{ ok=$true; interfaces=$interfaces }
+                } catch { Send-LocalJsonResponse -Client $client -StatusCode 500 -Body @{ ok=$false; message=$_.Exception.Message } }
             } elseif ($requestLine -match '^GET\s+/device-info(?:\?|\s)') {
                 if (Test-Path -LiteralPath $deviceOutputPath) {
                     $deviceResult = Get-Content -LiteralPath $deviceOutputPath -Raw -Encoding UTF8 | ConvertFrom-Json

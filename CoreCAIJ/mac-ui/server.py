@@ -25,6 +25,15 @@ NAS_SERVER = "http://NAS-CAIJ:9100"
 NAS_SERVER_IP = "http://192.168.15.200:9100"
 
 
+def read_version_metadata(core_dir):
+    try:
+        marker = pathlib.Path(core_dir) / "caij_versao_app.txt"
+        return {"version": marker.read_text(encoding="utf-8-sig").strip(),
+                "versionRecordedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(marker.stat().st_mtime))}
+    except (OSError, UnicodeError):
+        return {"version": "", "versionRecordedAt": ""}
+
+
 def format_os(value):
     return "C{:06d}".format(max(int(value), 0))
 
@@ -102,6 +111,7 @@ def gpu_short(gpu):
 
 def build_print_payload(info, os_numero, grade, obs, include_os, equipment_type="Notebook"):
     serial = (info.get("serial") or "").strip() or "XXXXXX"
+    grade_text = (grade or "A").strip().upper()
     return {
         "os": int(os_numero) if include_os else None,
         "modelo": info.get("modelo") or "Apple MacBook",
@@ -122,19 +132,29 @@ def build_print_payload(info, os_numero, grade, obs, include_os, equipment_type=
         "monitorEntradas": info.get("monitorEntradas") or "",
         "celularImei": info.get("imei") or "",
         "celularCiclos": info.get("ciclos") or "",
-        "grade": (grade or "A").strip().upper(),
+        "grade": "D" if re.match(r"^(?:GRADE\s+)?D$", grade_text) else grade_text,
         "obs": obs or "",
     }
 
 
-def validate_print_request(grade, obs):
+def validate_print_request(grade, obs, detalhe_grade=""):
     grade_text = (grade or "A").strip().upper()
     obs_text = (obs or "").strip()
+    if re.match(r"^(?:GRADE\s+)?D$", grade_text) and not str(detalhe_grade or "").strip():
+        return "Descreva o detalhe da maquina em Observacoes para a Grade D."
     if grade_text == "B" and not obs_text:
         return "Observacoes sao obrigatorias para Grade B."
     if re.match(r"^(?:GRADE\s+)?C(?:\s*-\s*PINTURA\s*[123])?$", grade_text) and not obs_text:
         return "Observacoes sao obrigatorias para Grade C."
     return ""
+
+
+def include_grade_detail(grade, observation, detail, label=False):
+    text = str(observation or "").strip()
+    note = str(detail or "").strip()
+    if not re.match(r"^(?:GRADE\s+)?D$", str(grade or "").strip().upper()) or not note or note in text:
+        return text
+    return (". " if label else "\n").join(filter(None, [text, ("Obs." if label else "Observações") + ": " + note]))
 
 
 class AppState:
@@ -149,6 +169,110 @@ class AppState:
         self.data = self.load_runtime_data()
         self.last_seen_confirmed = None
         self.pending_browser_event = None
+
+
+    def test_records_path(self):
+        base = pathlib.Path(os.environ["LOCALAPPDATA"]) if os.environ.get("LOCALAPPDATA") else pathlib.Path.home() / "Library" / "Application Support"
+        return base / "CAIJ" / "Testes" / "registros.json"
+
+    def test_records(self, record=None):
+        with self.lock:
+            path = self.test_records_path()
+            records = json.loads(path.read_text(encoding="utf-8")) if path.exists() else []
+            if not isinstance(records, list):
+                raise ValueError("Historico local invalido; restaure o backup antes de salvar.")
+            if record is None:
+                return {"ok": True, "records": records[-100:]}
+            if not isinstance(record, dict) or any(not str(record.get(key) or "").strip() for key in ("technician", "serial", "confirmedAt", "fingerprint")):
+                raise ValueError("Informe tecnico, serial e confirmacao do registro.")
+            if not re.match(r"^\d{4}-\d{2}-\d{2}T", record["confirmedAt"]):
+                raise ValueError("Data de confirmacao invalida.")
+            mode = record.get("mode")
+            items = record.get("items")
+            if mode not in ("APROVADO", "REGISTRADO") or not isinstance(items, list) or not items:
+                raise ValueError("Confirmacao ou itens invalidos.")
+            required_ids = set(['camera.image', 'camera.capture', 'keyboard.keys', 'audio.speakers', 'screen.pixels', 'screen.artifacts', 'trackpad.movement', 'trackpad.buttons', 'usb.inventory', 'charger.connectors', 'charger.firmness', 'network.ethernet', 'network.wifi', 'hdmi.detection', 'hdmi.image'])
+            ids = set()
+            usb_ports = 0
+            seen_usb_port_keys = set()
+            for item in items:
+                if not isinstance(item, dict) or not item.get("id") or item["id"] in ids:
+                    raise ValueError("Identificador de item invalido ou repetido.")
+                ids.add(item["id"])
+                if not str(item.get("label") or "").strip() or item.get("testId") != item["id"].split(".")[0]:
+                    raise ValueError("Nome ou grupo do item invalido.")
+                if item["id"] not in required_ids:
+                    if not re.match(r"^usb\.port-[1-9]\d*$", item["id"]):
+                        raise ValueError("Criterio desconhecido.")
+                    usb_ports += 1
+                result = item.get("result")
+                if result not in ("passed", "failed", "untested", "not_applicable"):
+                    raise ValueError("Item pendente ou invalido.")
+                if result in ("failed", "untested") and not str(item.get("notes") or "").strip():
+                    raise ValueError("Justifique os itens com ressalvas.")
+                if item["id"].startswith("usb.port-") and result == "passed":
+                    evidence = item.get("evidence") or {}
+                    if not isinstance(evidence, dict) or evidence.get("source") not in ("auto", "manual") or not str(evidence.get("detail") or "").strip():
+                        raise ValueError("Aprovacao da porta USB exige deteccao ou justificativa manual.")
+                    if evidence["source"] == "auto" and not str(evidence.get("portKey") or "").strip():
+                        raise ValueError("Deteccao USB sem identificacao da porta fisica.")
+                    if evidence["source"] == "auto":
+                        port_key = str(evidence["portKey"]).strip()
+                        if port_key in seen_usb_port_keys: raise ValueError("A mesma porta USB foi registrada mais de uma vez.")
+                        seen_usb_port_keys.add(port_key)
+                if item["id"] == "audio.speakers" and result == "passed":
+                    evidence = item.get("evidence") or {}
+                    if not isinstance(evidence, dict) or evidence.get("source") not in ("auto", "manual") or not str(evidence.get("detail") or "").strip():
+                        raise ValueError("Aprovacao do som exige evidencia de reproducao ou justificativa manual.")
+                    if evidence["source"] == "auto" and "esquerdo e direito" not in evidence["detail"]:
+                        raise ValueError("Teste automatico de som exige os dois lados.")
+                if item["id"] in ("trackpad.movement", "trackpad.buttons") and result == "passed":
+                    evidence = item.get("evidence") or {}
+                    if not isinstance(evidence, dict) or evidence.get("source") not in ("auto", "manual") or not str(evidence.get("detail") or "").strip():
+                        raise ValueError("Aprovacao do touchpad exige deteccao ou justificativa manual.")
+                    if evidence["source"] == "auto":
+                        detail = evidence["detail"]
+                        if item["id"] == "trackpad.movement":
+                            match = re.match(r"^(\d+) movimentos detectados", detail)
+                            if not match or int(match.group(1)) < 20: raise ValueError("Movimento insuficiente.")
+                        elif not re.search(r"esquerdo [1-9]\d*, direito [1-9]\d*", detail):
+                            raise ValueError("Cliques esquerdo e direito obrigatorios.")
+                if item["id"] == "charger.connectors" and result == "passed":
+                    evidence = item.get("evidence") or {}
+                    if not isinstance(evidence, dict) or evidence.get("source") not in ("auto", "manual") or not str(evidence.get("detail") or "").strip():
+                        raise ValueError("Aprovacao do carregador exige deteccao ou justificativa manual.")
+                    if evidence["source"] == "auto" and "bateria para tomada" not in evidence["detail"]:
+                        raise ValueError("Reconexao do carregador nao comprovada.")
+                if item["id"] in ("network.ethernet", "network.wifi") and result == "passed":
+                    evidence = item.get("evidence") or {}
+                    if not isinstance(evidence, dict) or evidence.get("source") not in ("auto", "manual") or not str(evidence.get("detail") or "").strip():
+                        raise ValueError("Aprovacao da rede exige deteccao ou justificativa manual.")
+                    if evidence["source"] == "auto" and "Interface {} conectada:".format(item["id"].split(".")[1]) not in evidence["detail"]:
+                        raise ValueError("Interface de rede nao comprovada.")
+                if mode == "APROVADO" and result in ("failed", "untested"):
+                    raise ValueError("Falha ou item nao testado impede aprovacao.")
+            if usb_ports > 32 or not required_ids.issubset(ids):
+                raise ValueError("Checklist incompleto ou portas USB invalidas.")
+            if mode == "APROVADO" and not any(item["result"] == "passed" for item in items):
+                raise ValueError("Aprovacao exige item aprovado.")
+            snapshot = {key: record.get(key, "") for key in ("technician", "serial", "items", "mode", "confirmedAt", "fingerprint", "notes")}
+            if "aesthetic" in record:
+                if not isinstance(record["aesthetic"], dict):
+                    raise ValueError("Avaliacao estetica invalida.")
+                snapshot["aesthetic"] = record["aesthetic"]
+            records.append(snapshot)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            pending = path.with_suffix(".tmp")
+            try:
+                pending.write_text(json.dumps(records[-100:], ensure_ascii=False, indent=2), encoding="utf-8")
+                if path.exists():
+                    backup = path.with_suffix(".json.bak.tmp")
+                    shutil.copyfile(path, backup)
+                    os.replace(backup, str(path) + ".bak")
+                os.replace(pending, path)
+            finally:
+                if pending.exists(): pending.unlink()
+            return {"ok": True, "record": snapshot}
 
     def load_runtime_data(self):
         try:
@@ -235,6 +359,7 @@ class AppState:
         with self.lock:
             self.data["osNumero"] = self.read_os_number()
             return {
+                **read_version_metadata(self.core_dir),
                 "info": self.data.get("info", {}),
                 "osNumero": self.data["osNumero"],
                 "osFormatada": format_os(self.data["osNumero"]),
@@ -368,7 +493,10 @@ class AppState:
         technician = str(request_data.get("tecnico") or "").strip()
         serial = str(request_data.get("serial") or "").strip()
         product = request_data.get("produto") or {}
-        reference = str(request_data.get("referencia") or "GRADE T - TRIAGEM").strip()
+        reference = str(request_data.get("referencia") or "GRADE D").strip()
+        detail = str(request_data.get("detalheGrade") or "").strip()
+        if re.match(r"^(?:GRADE\s+)?D$", reference.upper()) and not detail:
+            return {"ok": False, "message": "Descreva o detalhe da maquina em Observacoes para a Grade D."}
         if not technician:
             return {"ok": False, "message": "Selecione o tecnico."}
         if not serial:
@@ -380,13 +508,14 @@ class AppState:
             "tecnico": technician,
             "serial": serial,
             "referencia": reference,
+            "detalheGrade": detail,
             "idProduto": int(product.get("idProduto") or 0),
             "produtoCodigo": str(product.get("codigo") or product.get("produtoCodigo") or ""),
             "produtoDescricao": str(product.get("descricao") or product.get("nome") or ""),
             "produtoValor": str(product.get("valor") or "0.00"),
             "servicos": request_data.get("servicos") or [],
             "tipoEquipamento": request_data.get("equipmentType") or self.data.get("equipmentType") or "Notebook",
-            "observacao": str(request_data.get("observacao") or "").strip(),
+            "observacao": include_grade_detail(reference, request_data.get("observacao"), detail),
         }
         response = self.request_server("/criar-os-altertag", method="POST", payload=payload, timeout=45)
         if str(response.get("status") or "").lower() != "ok":
@@ -442,7 +571,9 @@ class AppState:
         grade = (request_data.get("grade") or "A").strip()
         obs = (request_data.get("obs") or "").strip()
         include_os = bool(request_data.get("includeOs", True))
-        error = validate_print_request(grade, obs)
+        detail = str(request_data.get("detalheGrade") or "").strip()
+        obs = include_grade_detail(grade, obs, detail, label=True)
+        error = validate_print_request(grade, obs, detail)
         if error:
             return {"ok": False, "message": error}
         with self.lock:
@@ -461,6 +592,7 @@ class AppState:
             equipment_type = request_data.get("equipmentType") or self.data.get("equipmentType") or "Notebook"
             self.data["equipmentType"] = equipment_type
             payload = build_print_payload(self.data.get("info", {}), self.read_os_number(), grade, obs, include_os, equipment_type)
+            payload["detalheGrade"] = detail
         try:
             server_response = self.request_server("/imprimir", method="POST", payload=payload, timeout=20)
             with self.lock:
@@ -537,16 +669,29 @@ def make_handler(app_state, stop_event):
             return json.loads(self.rfile.read(length).decode("utf-8"))
 
         def do_GET(self):
+            if self.path == "/api/test-records":
+                try: return self.send_json(200, app_state.test_records())
+                except Exception as exc: return self.send_json(400, {"ok": False, "message": str(exc)})
             if self.path == "/" or self.path.startswith("/index.html"):
                 return self.serve_file(app_state.ui_dir / "index.html")
             if self.path == "/style.css":
                 return self.serve_file(app_state.ui_dir / "style.css")
             if self.path == "/app.js":
                 return self.serve_file(app_state.ui_dir / "app.js")
+            if self.path in ("/qr-encoder.js", "/qr-preview.js", "/animated-gradient.js"):
+                return self.serve_file(app_state.ui_dir / self.path.lstrip("/"))
             if self.path == "/portable.js":
                 return self.serve_file(app_state.ui_dir / "portable.js")
             if self.path == "/storage.js":
                 return self.serve_file(app_state.ui_dir / "storage.js")
+            if self.path == "/qr-encoder.js":
+                return self.serve_file(app_state.ui_dir / "qr-encoder.js")
+            if self.path == "/qr-preview.js":
+                return self.serve_file(app_state.ui_dir / "qr-preview.js")
+            if self.path == "/test-checklist.js":
+                return self.serve_file(app_state.ui_dir / "test-checklist.js")
+            if self.path == "/observation.js":
+                return self.serve_file(app_state.ui_dir / "observation.js")
             if self.path == "/serial-os.js":
                 return self.serve_file(app_state.ui_dir / "serial-os.js")
             if self.path == "/runtime-loader.js":
@@ -568,6 +713,12 @@ def make_handler(app_state, stop_event):
                 return self.serve_file(app_state.ui_dir / self.path.lstrip("/"))
             if self.path == "/api/state":
                 return self.send_json(200, app_state.public_state())
+            if self.path == "/api/update-status":
+                try:
+                    manifest = app_state.request_server("/atualizacao/manifesto", timeout=8)
+                    return self.send_json(200, {"ok": bool(manifest.get("version")), "latestVersion": manifest.get("version", "")})
+                except Exception:
+                    return self.send_json(503, {"ok": False, "message": "Servidor de atualizacao indisponivel"})
             if self.path == "/api/print-diagnostics":
                 try:
                     return self.send_json(200, app_state.request_server("/diagnostico-impressao", timeout=6))
@@ -578,6 +729,9 @@ def make_handler(app_state, stop_event):
             return self.send_json(404, {"ok": False, "message": "Nao encontrado"})
 
         def do_POST(self):
+            if self.path == "/api/test-records":
+                try: return self.send_json(200, app_state.test_records(self.read_json()))
+                except Exception as exc: return self.send_json(400, {"ok": False, "message": str(exc)})
             try:
                 if self.path == "/api/print":
                     return self.send_json(200, app_state.print_label(self.read_json()))

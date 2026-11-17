@@ -71,9 +71,9 @@
   function fetchErrorMessage(error) {
     const message = String(error && error.message ? error.message : "").trim();
     if (error && (error.name === "AbortError" || /aborted|abort|signal/i.test(message))) {
-      return "tempo limite de conexao";
+      return "tempo limite de conexão excedido";
     }
-    return message || "verifique a rede";
+    return message || "verifique a conexão com a rede";
   }
 
   async function findReachableServer(timeout = 2500) {
@@ -85,7 +85,7 @@
         const base = await Promise.any(candidates.map(async (base) => {
           const response = await fetchWithTimeout(`${base}/status`, {}, timeout);
           const data = await response.json();
-          if (!response.ok || String(data.status || "").toLowerCase() !== "ok") throw new Error("Servidor invalido");
+          if (!response.ok || String(data.status || "").toLowerCase() !== "ok") throw new Error("Resposta inválida do servidor CAIJ.");
           return base;
         }));
         activeServer = base;
@@ -94,7 +94,7 @@
         return base;
       } catch (_) {
         portableState.lastServerStatus = "offline";
-        throw new Error("Servidor CAIJ indisponivel. Verifique a rede e tente novamente.");
+        throw new Error("Servidor CAIJ indisponível. Verifique a conexão com a rede e tente novamente.");
       } finally {
         serverDiscovery = null;
       }
@@ -112,16 +112,16 @@
       }, timeout);
       const data = await response.json();
       if (!response.ok || String(data.status || "ok").toLowerCase() === "erro") {
-        throw new Error(data.mensagem || data.message || "Falha no servidor CAIJ");
+        throw new Error(data.mensagem || data.message || "Não foi possível concluir a solicitação no servidor CAIJ.");
       }
       return data;
     } catch (error) {
       if (activeServer === base) activeServer = "";
       portableState.lastServerStatus = "offline";
       if (error && (error.name === "AbortError" || /aborted|abort|signal/i.test(String(error.message || "")))) {
-        throw new Error("A impressao excedeu 35 segundos. Confira se a etiqueta saiu antes de tentar novamente.");
+        throw new Error("O envio da etiqueta excedeu 35 segundos. Confira se ela foi impressa antes de tentar novamente.");
       }
-      throw new Error(`Falha ao enviar a etiqueta. ${fetchErrorMessage(error)}.`);
+      throw new Error(`Não foi possível enviar a etiqueta: ${fetchErrorMessage(error)}.`);
     }
   }
 
@@ -155,13 +155,13 @@
         if (activeServer === base) activeServer = "";
         portableState.lastServerStatus = "offline";
         if (body === undefined && attempt === 0) continue;
-        const warning = body === undefined ? "" : " Confira o resultado no sistema antes de tentar novamente; a solicitacao pode ter sido recebida.";
-        throw new Error(`Falha de conexao com o servidor CAIJ: ${fetchErrorMessage(error)}.${warning}`);
+        const warning = body === undefined ? "" : " A solicitação pode ter sido recebida. Confira o resultado no sistema antes de tentar novamente.";
+        throw new Error(`Não foi possível conectar ao servidor CAIJ: ${fetchErrorMessage(error)}.${warning}`);
       }
       const data = await response.json();
       portableState.lastServerStatus = "online";
       if (!response.ok || String(data.status || "ok").toLowerCase() === "erro") {
-        throw new Error(data.mensagem || data.message || "Falha no servidor CAIJ");
+        throw new Error(data.mensagem || data.message || "Não foi possível concluir a solicitação no servidor CAIJ.");
       }
       return data;
     }
@@ -272,11 +272,44 @@
       serial: String(order?.garantia || order?.serial || "-").trim(),
       statusOs: String(order?.statusOs || "").trim(),
       online: Boolean(order),
-      message: order ? "" : "Rastreador não localizado no Altertag",
+      message: order ? "" : "Rastreador não encontrado no AlterTag.",
     };
   }
 
   async function portableApi(path, body) {
+    if (path === "/api/usb-devices") {
+      if (!isWindows || !runtime.localBridgeUrl) throw new Error("Detecção USB indisponível neste modo. Use a confirmação manual justificada.");
+      const response = await fetchWithTimeout(`${runtime.localBridgeUrl}/usb-devices`, {}, 5000);
+      const data = await response.json();
+      if (!response.ok || !data.ok || !Array.isArray(data.devices)) throw new Error(data.message || "Não foi possível ler os dispositivos USB.");
+      return data;
+    }
+    if (path === "/api/network-status") {
+      if (!isWindows || !runtime.localBridgeUrl) throw new Error("Detecção de rede indisponível neste modo. Use a confirmação manual justificada.");
+      const response = await fetchWithTimeout(`${runtime.localBridgeUrl}/network-status`, {}, 3000);
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.message || "Não foi possível ler as interfaces de rede.");
+      return data;
+    }
+    if (path === "/api/power-status") {
+      if (!isWindows || !runtime.localBridgeUrl) throw new Error("Leitura de alimentação indisponível neste modo. Use a confirmação manual justificada.");
+      const response = await fetchWithTimeout(`${runtime.localBridgeUrl}/power-status`, {}, 3000);
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.message || "Não foi possível ler a alimentação.");
+      return data;
+    }
+    if (path === "/api/test-records") {
+      if (!runtime.localBridgeUrl) throw new Error("O histórico de testes não pode ser salvo neste modo. Abra o aplicativo local do InfoNotebook para confirmar o relatório.");
+      const response = await fetchWithTimeout(`${runtime.localBridgeUrl}/api/test-records`, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }, 10000);
+      const data = await response.json();
+      if (!response.ok || !data.ok) throw new Error(data.message || "Não foi possível salvar o relatório de testes no computador.");
+      return data;
+    }
+
+    if (path === "/api/update-status") {
+      const manifest = await central("/atualizacao/manifesto", undefined, 8000);
+      return { ok: Boolean(manifest.version), latestVersion: manifest.version || "" };
+    }
     if (path === "/api/print-diagnostics") {
       return central("/diagnostico-impressao", undefined, 6000);
     }
@@ -309,15 +342,15 @@
       return { ok: true, osNumero: portableState.osNumero, state: publicState() };
     }
     if (path === "/api/native-command") {
-      if (!runtime.sessionId) throw new Error("Sessao local do Mac nao identificada.");
+      if (!runtime.sessionId) throw new Error("A sessão local do Mac não foi identificada. Feche e abra o InfoNotebook para tentar novamente.");
       const data = await central("/mac/comando", { session: runtime.sessionId, command: body.command }, 5000);
       return { ok: true, message: data.mensagem || "Comando enviado." };
     }
     if (path === "/api/read-3utools") {
-      if (!isWindows || !runtime.localBridgeUrl) throw new Error("Leitor local do 3uTools não está disponível.");
+      if (!isWindows || !runtime.localBridgeUrl) throw new Error("O leitor do 3uTools não está disponível neste modo. Abra o InfoNotebook no Windows para usar essa leitura.");
       const response = await fetchWithTimeout(`${runtime.localBridgeUrl}/3utools`, { method: "POST" }, 25000);
       const data = await response.json();
-      if (!response.ok || data.ok === false) throw new Error(data.message || "Não foi possível ler o 3uTools.");
+      if (!response.ok || data.ok === false) throw new Error(data.message || "Não foi possível obter os dados do 3uTools. Confira a conexão do aparelho e tente novamente.");
       portableState.device3u = data.device || null;
       return data;
     }
@@ -357,20 +390,25 @@
     }
     if (path === "/api/products") {
       const term = String(body.term || "").trim();
-      if (term.length < 2) throw new Error("Digite pelo menos 2 caracteres.");
+      if (term.length < 2) throw new Error("Digite pelo menos 2 caracteres para buscar um produto.");
       const data = await central("/buscar-opcoes-altertag", { tipo: "produto", termo: term, modo: "catalogo" }, 25000);
       return { ok: true, produtos: data.produtos || [], fonte: data.fonte || "Altertag", message: data.mensagem || "Produtos encontrados." };
     }
     if (path === "/api/create-os") {
-      if (portableState.deviceReading !== 'ready') throw new Error('A leitura do equipamento ainda nao esta pronta.');
+      if (portableState.deviceReading !== 'ready') throw new Error('A leitura do equipamento ainda não foi concluída. Aguarde antes de continuar.');
+      const reference = body.referencia || "GRADE D";
+      const detail = String(body.detalheGrade || "").trim();
+      const gradeError = window.CAIJ_OBSERVATION.validateGradeDetail(reference, detail);
+      if (gradeError) throw new Error(gradeError);
       const product = body.produto || {};
       const device3u = body.device3u || null;
       const equipmentType = device3u ? "Celular" : (body.equipmentType || portableState.equipmentType);
-      const observation = automaticObservation(body.observacao, body.tecnico, body.info || portableState.info, device3u, equipmentType);
+      const observation = automaticObservation(window.CAIJ_OBSERVATION.includeGradeDetail(reference, body.observacao, detail), body.tecnico, body.info || portableState.info, device3u, equipmentType);
       const payload = {
         tecnico: body.tecnico,
         serial: body.serial,
-        referencia: body.referencia || "GRADE T - TRIAGEM",
+        referencia: reference,
+        detalheGrade: detail,
         idProduto: Number(product.idProduto || 0),
         produtoCodigo: String(product.codigo || product.produtoCodigo || ""),
         produtoDescricao: String(product.descricao || product.nome || ""),
@@ -390,10 +428,15 @@
       return { ok: true, osCriada: formatOs(created), proximaOs: formatOs(data.proximoDisponivel || created + 1), observacao: observation, state: publicState(), response: data };
     }
     if (path === "/api/print") {
-      if (portableState.deviceReading !== 'ready') throw new Error('A leitura do equipamento ainda nao esta pronta.');
-      const grade = String(body.grade || "A").toUpperCase();
-      const obs = String(body.obs || "").trim();
-      if ((grade === "B" || grade === "C") && !obs) throw new Error(`Observacoes sao obrigatorias para Grade ${grade}.`);
+      if (portableState.deviceReading !== 'ready') throw new Error('A leitura do equipamento ainda não foi concluída. Aguarde antes de continuar.');
+      const gradeText = String(body.grade || "A").trim().toUpperCase();
+      const grade = window.CAIJ_OBSERVATION.gradeCode(gradeText) === "D" ? "D" : gradeText;
+      const obs = window.CAIJ_OBSERVATION.includeGradeDetail(grade, body.obs, body.detalheGrade, true);
+      const detail = String(body.detalheGrade || "").trim();
+      const gradeError = window.CAIJ_OBSERVATION.validateGradeDetail(grade, detail);
+      if (gradeError) throw new Error(gradeError);
+      if (!window.CAIJ_OBSERVATION.fitsLabel(obs)) throw new Error('A observação ultrapassa o limite de 3 linhas da etiqueta. Resuma o texto antes de imprimir.');
+      if ((grade === "B" || grade === "C") && !obs) throw new Error(`Descreva as observações da Grade ${grade} antes de imprimir.`);
       if (body.includeOs && Number(body.osNumero) > 0) {
         portableState.osNumero = Number(body.osNumero);
         portableState.manualOsSet = true;
@@ -407,6 +450,7 @@
         } catch (_) {}
       }
       const payload = printPayload(portableState.info, grade, obs, Boolean(body.includeOs));
+      payload.detalheGrade = detail;
       // Impressao nunca e repetida automaticamente: se a resposta cair depois
       // de o spooler aceitar, uma segunda tentativa poderia duplicar a etiqueta.
       const data = await printOnce(payload);
@@ -427,14 +471,14 @@
       const tracker = data.rastreador || null;
       return {
         ok: true,
-        message: data.mensagem || "Etiqueta enviada com sucesso.",
+        message: data.mensagem || "Etiqueta enviada para impressão.",
         payload,
         tracker,
         syncWarning: String(tracker?.status || "").toLowerCase() === "warning",
         state: publicState(),
       };
     }
-    throw new Error("Acao nao disponivel no modo portatil.");
+    throw new Error("Esta ação não está disponível no modo portátil.");
   }
 
   window.CAIJ_PORTABLE_API = portableApi;

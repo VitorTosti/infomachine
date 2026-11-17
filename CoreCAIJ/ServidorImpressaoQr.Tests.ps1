@@ -126,7 +126,7 @@ Assert-True ($null -ne $formatBatteryAst) 'funcao de formatacao da bateria encon
 Invoke-Expression $formatBatteryAst.Extent.Text
 Assert-Equal (Format-BateriaQualidade '91% (Normal) | 540 ciclos') 'GOOD (91%) C:540' 'bateria com ciclos fica compacta na etiqueta'
 Assert-True ($scriptText -match '\$isDesktop\s*=\s*\(\$tipoEquipamento\s+-match') 'servidor reconhece etiquetas desktop'
-Assert-True ($scriptText -match "\`$gradeRaw\s+-in\s+@\('A','B','C','RMA'\)") 'servidor aceita grade C simples'
+Assert-True ($scriptText -match "\`$gradeRaw\s+-in\s+@\('A','B','C','D','RMA'\)") 'servidor aceita grade C simples'
 Assert-True ($scriptText -match "\`$gradeBadge\s*=\s*'GRADE C'") 'etiqueta imprime apenas GRADE C'
 Assert-True ($scriptText -match "\^\(\?:GRADE\\s\+\)\?C\(\?:\\s\*-\\s\*PINTURA\\s\*\[123\]\)\?\$") 'servidor converte referencias antigas de pintura para Grade C'
 Assert-True ($scriptText -match '\$mostrarBateria\s*=\s*\(-not\s+\$isDesktop') 'desktop nao imprime bateria'

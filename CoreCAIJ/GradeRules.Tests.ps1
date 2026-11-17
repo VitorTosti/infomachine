@@ -16,9 +16,9 @@ function Assert-True {
 }
 
 $options = @(Get-CaijGradeOptions)
-Assert-Equal ($options -join '|') 'A|B|C|T - TRIAGEM|RMA' 'opcoes de grade'
+Assert-Equal ($options -join '|') 'A|B|C|D|RMA' 'opcoes de grade'
 $cellOptions = @(Get-CaijGradeOptions -EquipmentType 'Celular')
-Assert-Equal ($cellOptions -join '|') 'A|B|C|T - TRIAGEM|RMA' 'celular usa grade C sem pintura'
+Assert-Equal ($cellOptions -join '|') 'A|B|C|D|RMA' 'celular usa grade C sem pintura'
 Assert-Equal (Format-CaijGradeReference 'A') 'GRADE A' 'referencia A'
 Assert-Equal (Format-CaijGradeReference 'C') 'GRADE C' 'referencia C simples'
 Assert-Equal (Format-CaijGradeReference 'C - PINTURA 2') 'GRADE C' 'referencia antiga de pintura vira grade C'
@@ -30,5 +30,11 @@ Assert-True (Test-CaijGradeRequiresObs 'C - PINTURA 1') 'C exige observacao'
 Assert-True (Test-CaijGradeRequiresObs 'C') 'C simples exige observacao'
 Assert-True (-not (Test-CaijGradeRequiresObs 'T - TRIAGEM')) 'T nao exige observacao'
 Assert-True (-not (Test-CaijGradeRequiresObs 'A')) 'A nao exige observacao'
+
+Assert-Equal (Normalize-CaijGrade 'GRADE D') 'D' 'normaliza grade D'
+Assert-Equal (Format-CaijGradeReference 'D') 'GRADE D' 'referencia D'
+Assert-True (Test-CaijGradeRequiresObs 'D') 'D exige detalhe livre'
+Assert-True (-not (Test-CaijGradeRequiresObs 'RMA')) 'RMA mantem observacao opcional'
+Assert-True ($options -notcontains 'T - TRIAGEM') 'triagem legada nao aparece em novas opcoes'
 
 'OK: GradeRules tests'

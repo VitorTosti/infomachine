@@ -794,16 +794,49 @@ Conecte-o ao Wi-Fi CAIJ. O InfoNotebook continuara abrindo, mas atualizacoes e r
   return 1
 }
 
-clipboard_tests_observation() {
-  local value
-  command -v pbpaste >/dev/null 2>&1 || return 0
-  value="$(pbpaste 2>/dev/null | tr -d '\r' | sed -n '1p')"
-  value="$(trim "$value")"
-  if [[ "$value" =~ '^TESTES:[[:space:]]*(OK|FALHOU|PENDENTE)$' ]]; then
-    echo "$value"
+# Clipboard is untrusted local text: require a matching equipment identity and
+# an explicit confirmed report before suggesting it in the native workflow.
+parse_tests_observation() {
+  local mode="${1:-record}" expected_serial="${2:-$SERIAL}" value first report_serial situation confirmation technician summary pattern
+  value="$(cat | tr -d '\r')"
+  first="$(printf '%s\n' "$value" | sed -n '1p')"
+  pattern='^TESTES:[[:space:]]*(OK|FALHOU|PENDENTE)$'
+  if [[ "$first" =~ $pattern ]]; then
+    # Legacy OK has no technician confirmation or serial; never import approval.
+    [[ "$first" == 'TESTES: FALHOU' ]] && echo 'TESTES: FALHOU' || echo 'TESTES: PENDENTE'
+    return 0
+  fi
+  [[ "$first" == 'RELATÓRIO DE TESTES DE HARDWARE' ]] || return 0
+  [[ "$(printf '%s\n' "$value" | tail -n 1)" == 'Confirmação local do técnico; o envio ao rastreador depende do cadastro ou da integração correspondente.' ]] || return 0
+  report_serial="$(printf '%s\n' "$value" | sed -n 's/^Serial: //p')"
+  situation="$(printf '%s\n' "$value" | sed -n 's/^Situação: //p')"
+  confirmation="$(printf '%s\n' "$value" | sed -n 's/^Confirmação: //p')"
+  technician="$(printf '%s\n' "$value" | sed -n 's/^Técnico responsável: //p')"
+  summary="$(printf '%s\n' "$value" | sed -n 's/^Resumo: //p')"
+  [[ -n "$(trim "$expected_serial")" && "$(trim "$report_serial")" == "$(trim "$expected_serial")" ]] || return 0
+  [[ -n "$(trim "$technician")" && "$technician" != 'Não informado' ]] || return 0
+  pattern='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$'
+  [[ "$confirmation" =~ $pattern ]] || return 0
+  [[ "$situation" == 'APROVADO' || "$situation" == 'REGISTRADO' ]] || return 0
+  if [[ "$situation" == 'APROVADO' ]]; then
+    pattern='^[1-9][0-9]* aprovados; 0 reprovados; [0-9]+ não se aplicam; 0 não testados; 0 pendentes\.$'
+    [[ "$summary" =~ $pattern ]] || return 0
+  else
+    pattern='^[0-9]+ aprovados; [0-9]+ reprovados; [0-9]+ não se aplicam; [0-9]+ não testados; 0 pendentes\.$'
+    [[ "$summary" =~ $pattern ]] || return 0
+  fi
+  if [[ "$mode" == 'label' ]]; then
+    # The complete report belongs to the tracker, never to the 180-char label.
+    [[ "$situation" == 'APROVADO' ]] && echo 'TESTES: APROVADO pelo tecnico' || echo 'TESTES: REGISTRADO com ressalvas'
+  else
+    printf '%s\n' "$value"
   fi
 }
 
+clipboard_tests_observation() {
+  command -v pbpaste >/dev/null 2>&1 || return 0
+  pbpaste 2>/dev/null | parse_tests_observation "${1:-record}" "${2:-$SERIAL}"
+}
 html_escape() {
   printf '%s' "$1" | sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g; s/"/\&quot;/g'
 }
@@ -921,7 +954,7 @@ dialog_create_os() {
   [[ "$descricao" == "__CAIJ_CANCEL__" ]] && return
   referencia="$(dialog_choose "Referencia" "GRADE A|GRADE B|GRADE C|GRADE T - TRIAGEM|RMA")"
   [[ "$referencia" == "__CAIJ_CANCEL__" ]] && return
-  suggested_obs="$(clipboard_tests_observation)"
+  suggested_obs="$(clipboard_tests_observation record "$serial")"
   obs="$(dialog_input "Observacao" "$suggested_obs")"
   [[ "$obs" == "__CAIJ_CANCEL__" ]] && return
   confirm="$(dialog_confirm "Tecnico: $tecnico
@@ -995,8 +1028,11 @@ dialog_print_label() {
   fi
 
   obs="$default_obs"
+  if [[ "$obs" == 'RELATÓRIO DE TESTES DE HARDWARE'* ]]; then
+    obs="$(printf '%s\n' "$obs" | parse_tests_observation label "$SERIAL")"
+  fi
   if [[ -z "$(trim "$obs")" ]]; then
-    obs="$(clipboard_tests_observation)"
+    obs="$(clipboard_tests_observation label "$SERIAL")"
   fi
 
   if [[ -n "$default_include_os" ]]; then

@@ -97,8 +97,8 @@ $checks = @(
     @($app, 'function syncCompletedTestsToRecord(pending)'),
     @($html, 'id="finishTests"'),
     @($html, 'id="testsCompletion"'),
-    @($html, 'class="tests-overview" aria-label="Resumo dos testes"'),
-    @($html, 'class="test-list-head"'),
+    @($html, 'id="testRail"'),
+    @($html, 'id="testActionBar"'),
     @($app, 'caij:last-print'),
     @($app, 'caij:print-history'),
     @($portable, 'automaticObservation'),
@@ -138,8 +138,8 @@ $checks = @(
     @($style, '--accent-mint: #4cdda2'),
     @($style, '.workflow-step:nth-child(3)'),
     @($style, '.grade-fieldset .grade[data-grade="RMA"].active'),
-    @($style, 'button.is-busy::before'),
-    @($style, '@keyframes action-spin')
+    @($style, '.bars-spinner > i'),
+    @($style, '@keyframes bars-spinner-fade')
 )
 
 if (-not ($app -match 'functionKeys[\s\S]*PRINTSCREEN[\s\S]*SCROLLLOCK[\s\S]*PAUSE') -or
@@ -247,7 +247,7 @@ if (-not ($app.Contains('window.scrollTo({ top: 0, behavior: "smooth" })'))) {
 if (-not ($html -match 'id="statusLine" hidden')) {
     throw 'A linha de status nao deve ficar visivel na interface principal.'
 }
-if (-not ($html -match 'id="skipActiveTest"[\s\S]*id="failAndNextTest"[\s\S]*id="passAndNextTest"[\s\S]*id="activeTestBody"') -or
+if (-not ($html -match 'id="activeTestBody"[\s\S]*id="testActionBar"[\s\S]*id="skipActiveTest"[\s\S]*id="failAndNextTest"[\s\S]*id="passAndNextTest"') -or
     -not ($app -match 'function\s+completeActiveTest[\s\S]*await openTest\(nextTest\)')) {
     throw 'O teste aberto deve permitir registrar o resultado e avancar pela sequencia sem voltar para a lista.'
 }
@@ -292,10 +292,10 @@ if (-not ($html -match 'class="alert-created"[\s\S]*id="alertCreatedOs"[\s\S]*cl
 if (-not ($html -match 'id="homeView"[\s\S]*class="panel print-history-panel"[\s\S]*id="printHistoryList"')) {
     throw 'O historico das etiquetas deve aparecer no final da pagina Menu.'
 }
-if (-not ($app -match 'readPrintHistory[\s\S]*caij:print-history[\s\S]*slice\(0, 8\)')) {
-    throw 'O historico deve preservar localmente somente as oito impressoes mais recentes.'
+if (-not ($app -match 'readPrintHistory[\s\S]*caij:print-history[\s\S]*slice\(0, 100\)')) {
+    throw 'O historico deve preservar localmente no maximo cem impressoes recentes.'
 }
-if (-not ($app -match 'printHistoryPanel[\s\S]*classList\.toggle\("is-empty", history\.length === 0\)')) {
+if (-not ($app -match 'printHistoryPanel[\s\S]*classList\.toggle\("is-empty", allHistory\.length === 0\)')) {
     throw 'O historico vazio deve permanecer compacto no Menu.'
 }
 if (-not ($app -match 'workflowOverall"\)\.textContent = `\$\{completed\} de 4 etapas`')) {
@@ -304,10 +304,11 @@ if (-not ($app -match 'workflowOverall"\)\.textContent = `\$\{completed\} de 4 e
 if (-not ($app -match 'reviewSerialDivergence[\s\S]*showAppView\("labels"\)[\s\S]*refreshOsVerification')) {
     throw 'A divergencia de serial deve oferecer uma acao segura para conferir os dados.'
 }
-if (-not ($app -match 'testsCompletion"\)\.textContent = `\$\{passed \+ failed\} de \$\{values.length\} concluídos`[\s\S]*aria-pressed')) {
-    throw 'A Central de Testes deve mostrar progresso geral e selecao acessivel dos resultados.'
+if (-not ($html.Contains('id="testConfirmationWord"')) -or -not ($html.Contains('id="testAttestation"')) -or
+    -not ($app.Contains('validTestSignature()')) -or -not ($html.Contains('src="test-checklist.js"'))) {
+    throw 'A Central de Testes deve carregar o checklist e exigir confirmacao explicita do tecnico.'
 }
-if (-not ($style -match '\.tests-page \.test-row\.passed[\s\S]*\.tests-page \.test-row\.failed[\s\S]*\.test-actions button\[data-action="pass"\]\.selected')) {
+if (-not ($style -match '#testRail li\[data-state=passed\][\s\S]*#testRail li\[data-state=failed\]')) {
     throw 'A Central de Testes deve diferenciar visualmente estados pendente, aprovado e reprovado.'
 }
 if (-not ($preview.Contains("'--auto-accept-camera-and-microphone-capture'")) -or
@@ -359,8 +360,8 @@ if (-not ($app.Contains('"bateria"'))) {
 if ($html -match 'Leitura autom.tica conclu.da') {
     throw 'O selo de leitura automatica concluida nao deve aparecer na interface.'
 }
-if (-not ($app -match 'windowsFields\s*=\s*\["modelo",\s*"serial",\s*"cpu",\s*"disco",\s*"gpu",\s*"ram",\s*"bateria"\]')) {
-    throw 'No Windows, Disco deve preencher a coluna ao lado da CPU.'
+if (-not ($app -match 'windowsFields\s*=\s*\["modelo",\s*"cpu",\s*"disco",\s*"gpu",\s*"ram",\s*"bateria"\]')) {
+    throw 'No Windows, a lista tecnica deve preservar CPU, disco, GPU, RAM e bateria; serial fica no cabecalho.'
 }
 if (-not ($app -match 'key === "bateria" \? "full"')) {
     throw 'No Windows, Bateria deve fechar toda a base da grade.'
@@ -368,8 +369,8 @@ if (-not ($app -match 'key === "bateria" \? "full"')) {
 if (-not ($app -match 'if \(isWindowsPreview\)[\s\S]*windows-keyboard[\s\S]*else[\s\S]*mac-keyboard')) {
     throw 'O mapa de teclado deve separar teclas Windows e Mac.'
 }
-if (-not ($app.Contains('return `TESTES: ${overall} | ${details}`'))) {
-    throw 'O resumo dos testes nao deve ficar rotulado como teste do Mac.'
+if (-not ($app.Contains('window.CAIJ_TEST_CHECKLIST.buildReport(state.testSignature)'))) {
+    throw 'O resumo confirmado deve incluir o relatorio detalhado do tecnico.'
 }
 
 foreach ($check in $checks) {

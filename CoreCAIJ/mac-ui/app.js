@@ -18,7 +18,18 @@ const state = {
     audio: "pending",
     screen: "pending",
     trackpad: "pending",
+    usb: "pending",
+    charger: "pending",
+    network: "pending",
+    hdmi: "pending",
   },
+  testChecklist: window.CAIJ_TEST_CHECKLIST.createChecklist({ usbPorts: ["USB 1", "USB 2"] }),
+  testSignature: null,
+  aestheticRecord: null,
+  testSessionSerial: "",
+  testRecords: null,
+  testRecordsDurable: false,
+  testConfirmationSaving: false,
   activeTest: "",
   mediaStream: null,
   audioContext: null,
@@ -26,7 +37,13 @@ const state = {
   audioFrame: 0,
   keyboardHandler: null,
   keyboardPressed: null,
+  keyboardRecentEvents: [],
+  checklistNotesOpen: new Set(),
+  keyboardCaptureCleanup: null,
   keyboardLayoutE14: null,
+  keyboardFnOverride: null,
+  keyboardProfile: null,
+  keyboardCustomNumpad: false,
   mouseButtonCleanup: null,
   environment: {
     internetOnline: true,
@@ -57,13 +74,17 @@ const labels = {
 };
 
 const testLabels = {
-  camera: "Camera",
+  camera: "Câmera",
   keyboard: "Teclado",
-  audio: "Som/Mic",
+  audio: "Som",
   screen: "Tela",
   trackpad: "Trackpad",
+  usb: "Portas USB",
+  charger: "Carregador",
+  network: "Rede / Wi-Fi",
+  hdmi: "HDMI",
 };
-const testSequence = ["camera", "keyboard", "audio", "screen", "trackpad"];
+const testSequence = ["camera", "keyboard", "audio", "screen", "trackpad", "usb", "charger", "network", "hdmi"];
 
 const nativeRuntime = window.CAIJ_NATIVE_RUNTIME || {};
 const isWindowsPreview = String(nativeRuntime.platform || "").toLowerCase() === "windows";
@@ -81,16 +102,14 @@ let lastSerialOsLookup = "";
 function applyPlatformUi() {
   if (!isWindowsPreview) return;
   document.body.classList.add("windows-preview");
-  document.title = "CAIJ InfoNotebook Windows - Previa";
+  document.title = "CAIJ InfoNotebook Windows";
   qs("platformName").textContent = "Windows";
   qs("brandKicker").classList.add("hidden");
   qs("serverLine").classList.add("hidden");
   qs("versionBadge").classList.add("hidden");
-  qs("devicePanelTitle").textContent = "Informacoes do Windows";
+  qs("devicePanelTitle").textContent = "Informações do Windows";
   qs("testsTitle").textContent = "Central de testes Windows";
-  qs("pointingDeviceTitle").textContent = "Mouse / Touchpad";
-  qs("pointingDeviceDescription").textContent = "Validar movimento, cliques e rolagem.";
-  testLabels.trackpad = "Mouse / Touchpad";
+  testLabels.trackpad = "Mouse / touchpad";
   document.querySelectorAll(".windows-only").forEach((element) => element.classList.remove("hidden"));
 }
 
@@ -110,16 +129,38 @@ async function api(path, body) {
   const response = await fetch(path, options);
   const data = await response.json();
   if (!response.ok || data.ok === false) {
-    throw new Error(data.message || "Falha na operacao");
+    throw new Error(data.message || "Não foi possível concluir a operação. Confira a conexão com o servidor.");
   }
   return data;
+}
+
+function setLoadingContent(element, message, loading = false) {
+  if (!element) return;
+  const label = document.createElement("span");
+  label.textContent = message || "";
+  element.replaceChildren(label);
+  element.classList.toggle("has-bars-spinner", loading);
+  if (loading) {
+    const spinner = document.createElement("span");
+    spinner.className = "bars-spinner";
+    spinner.setAttribute("aria-hidden", "true");
+    for (let index = 0; index < 12; index++) {
+      const bar = document.createElement("i");
+      bar.style.setProperty("--bar-index", index);
+      spinner.appendChild(bar);
+    }
+    element.prepend(spinner);
+    element.setAttribute("aria-busy", "true");
+  } else {
+    element.removeAttribute("aria-busy");
+  }
 }
 
 function setStatus(message, type = "") {
   const el = qs("statusLine");
   window.clearTimeout(statusTimer);
   el.className = `status-line ${type}`.trim();
-  el.textContent = message;
+  setLoadingContent(el, message, type === "busy");
   const isIdle = !String(message || "").trim() || String(message).trim().toLowerCase() === "pronto.";
   el.hidden = isIdle;
   if (!isIdle && type === "ok") {
@@ -133,19 +174,22 @@ function setStatus(message, type = "") {
 function setButtonBusy(button, busy, busyLabel = "Processando...") {
   if (!button) return;
   if (busy) {
-    button.dataset.idleLabel = button.textContent.trim();
-    button.dataset.wasDisabled = String(button.disabled);
-    button.textContent = busyLabel;
+    if (!button.classList.contains("is-busy")) {
+      button._idleContent = [...button.childNodes];
+      button.dataset.wasDisabled = String(button.disabled);
+    }
+    setLoadingContent(button, busyLabel, true);
     button.disabled = true;
     button.classList.add("is-busy");
     button.setAttribute("aria-busy", "true");
     return;
   }
-  button.textContent = button.dataset.idleLabel || button.textContent;
+  if (button._idleContent) button.replaceChildren(...button._idleContent);
+  button.classList.remove("has-bars-spinner");
   button.disabled = button.dataset.wasDisabled === "true";
   button.classList.remove("is-busy");
   button.removeAttribute("aria-busy");
-  delete button.dataset.idleLabel;
+  delete button._idleContent;
   delete button.dataset.wasDisabled;
 }
 
@@ -154,7 +198,7 @@ function setPrintProgress(message, phase = "busy") {
   if (!element) return;
   element.hidden = !message;
   element.className = `print-progress ${phase}`;
-  element.textContent = message || "";
+  setLoadingContent(element, message, phase === "busy" && Boolean(message));
 }
 
 async function checkPrintConnections() {
@@ -172,6 +216,7 @@ async function checkPrintConnections() {
       item.className = available ? "available" : "unavailable";
       item.textContent = `${label}: ${available ? "disponível" : "indisponível"}`;
       item.title = result.detalhe || "Sem detalhes";
+      if (result.detalhe) { const detail = document.createElement("small"); detail.textContent = result.detalhe; item.appendChild(detail); }
       panel.appendChild(item);
     }
   } catch (error) {
@@ -195,7 +240,7 @@ function readLastPrint() {
 function readPrintHistory() {
   try {
     const saved = JSON.parse(localStorage.getItem("caij:print-history") || "null");
-    if (Array.isArray(saved)) return saved.filter((entry) => entry && typeof entry === "object").slice(0, 8);
+    if (Array.isArray(saved)) return saved.filter((entry) => entry && typeof entry === "object").slice(0, 100);
   } catch (_) {}
   const legacy = readLastPrint();
   return legacy ? [legacy] : [];
@@ -204,7 +249,7 @@ function readPrintHistory() {
 function saveLastPrint(data) {
   const entry = { ...data, printedAt: data.printedAt || new Date().toISOString() };
   state.lastPrint = entry;
-  state.printHistory = [entry, ...(state.printHistory || [])].slice(0, 8);
+  state.printHistory = [entry, ...(state.printHistory || [])].slice(0, 100);
   try {
     localStorage.setItem("caij:last-print", JSON.stringify(entry));
     localStorage.setItem("caij:print-history", JSON.stringify(state.printHistory));
@@ -213,15 +258,20 @@ function saveLastPrint(data) {
 }
 
 function renderPrintHistory() {
-  const history = Array.isArray(state.printHistory) ? state.printHistory : [];
+  const allHistory = Array.isArray(state.printHistory) ? state.printHistory : [];
+  const query = String(qs("printHistorySearch")?.value || "").trim().toLocaleLowerCase("pt-BR");
+  const history = allHistory.map((entry, index) => ({ entry, index })).filter(({ entry }) =>
+    !query || [entry.serial, entry.os, entry.modelo, entry.grade].some((value) => String(value || "").toLocaleLowerCase("pt-BR").includes(query)));
+
   const list = qs("printHistoryList");
   const empty = qs("printHistoryEmpty");
   if (!list || !empty) return;
-  qs("printHistoryPanel").classList.toggle("is-empty", history.length === 0);
-  qs("printHistoryCount").textContent = `${history.length} ${history.length === 1 ? "impressão" : "impressões"}`;
+  qs("printHistoryPanel").classList.toggle("is-empty", allHistory.length === 0);
+  qs("printHistoryCount").textContent = query ? `${history.length} de ${allHistory.length} registros` : `${allHistory.length} ${allHistory.length === 1 ? "impressão" : "impressões"}`;
+  empty.textContent = allHistory.length ? "Nenhuma etiqueta corresponde à busca." : "Nenhuma etiqueta foi registrada neste navegador. São mantidos os últimos 100 registros.";
   empty.classList.toggle("hidden", history.length > 0);
   list.classList.toggle("hidden", history.length === 0);
-  list.innerHTML = history.map((entry, index) => `
+  list.innerHTML = history.map(({ entry, index }) => `
     <li class="print-history-item">
       <span class="print-history-order">${String(index + 1).padStart(2, "0")}</span>
       <div class="print-history-main">
@@ -233,14 +283,77 @@ function renderPrintHistory() {
         <span>${escapeHtml(entry.grade ? `Grade ${entry.grade}` : "Grade não informada")}</span>
         <span>${escapeHtml(entry.tipo || "Equipamento")}</span>
       </div>
-      <time>${escapeHtml(entry.horario || "Horário não informado")}</time>
+      <time>${escapeHtml(formatHistoryDate(entry))}</time>
+      <button type="button" class="secondary" data-review-print="${index}">Conferir</button>
     </li>
   `).join("");
 }
 
+function formatHistoryDate(entry) {
+  const date = new Date(entry.printedAt || "");
+  return Number.isNaN(date.getTime()) ? (entry.horario || "Data não informada") : date.toLocaleString("pt-BR");
+}
+
+function openHistoryReview(index) {
+  const entry = state.printHistory[index];
+  if (!entry) return;
+  const info = entry.snapshot?.info;
+  const rows = [["Modelo", entry.modelo], ["Serial", entry.serial], ["Rastreador", entry.os], ["Grade", entry.grade], ["Registrada em", formatHistoryDate(entry)], ...(info ? [["CPU", info.cpu], ["RAM", info.ram], ["Disco", info.disco], ["GPU", info.gpu], ["Observações", entry.snapshot.obs]] : [])];
+  qs("historyReviewContent").innerHTML = `<dl class="history-review-data">${rows.map(([name, value]) => `<div><dt>${escapeHtml(name)}</dt><dd>${escapeHtml(value || "Não informado")}</dd></div>`).join("")}</dl>${info ? "" : '<p class="dialog-note">Registro antigo: a configuração completa não foi salva nesta etiqueta.</p>'}`;
+  qs("historyReviewDialog").showModal();
+}
+
+function editDeviceField(key) {
+  if (qs("editForm").classList.contains("hidden")) qs("editToggle").click();
+  const input = qs("editForm").elements.namedItem(key);
+  input?.focus();
+  input?.scrollIntoView({ block: "center", behavior: "smooth" });
+}
+
+function renderDeviceReview() {
+  const applicable = fields.filter((key) => key !== "bateria" || !["Desktop", "Monitor"].includes(state.equipmentType));
+  const missing = applicable.filter((key) => !hasUsefulValue(state.info[key]));
+  const panel = qs("deviceReview");
+  panel.classList.toggle("hidden", !missing.length || state.deviceReading === "pending");
+  panel.innerHTML = missing.length ? `<div><strong>Dados para conferir</strong><span>${missing.map((key) => escapeHtml(labels[key])).join(", ")} ${missing.length === 1 ? "não identificado" : "não identificados"}.</span></div><button type="button" data-edit-device="${missing[0]}">Revisar dados</button>` : "";
+  qs("deviceRead").querySelectorAll(".device-spec").forEach((item) => {
+    const key = applicable.find((name) => item.classList.contains(`spec-${name}`));
+    item.classList.toggle("needs-review", Boolean(key && missing.includes(key)));
+  });
+}
+
+function renderAppInfo() {
+  const info = state.appInfo || {};
+  qs("appInstalledVersion").textContent = info.version ? info.version.replace(/-preview$/, "") : "Não informada pelo inicializador";
+  const date = new Date(info.versionRecordedAt || "");
+  qs("appVersionRecorded").textContent = Number.isNaN(date.getTime()) ? "Data não disponível nesta instalação" : date.toLocaleString("pt-BR");
+}
+
+async function checkAppUpdates() {
+  const button = qs("checkAppUpdates");
+  if (button.disabled) return;
+  setButtonBusy(button, true, "Consultando...");
+  qs("appUpdateResult").textContent = "Consultando o servidor de atualização...";
+  try {
+    const data = await api("/api/update-status");
+    if (!data.ok || !data.latestVersion) throw new Error(data.message || "O servidor não informou uma versão disponível.");
+    qs("appLatestVersion").textContent = String(data.latestVersion);
+    const current = String(state.appInfo?.version || "").replace(/-preview$/, "");
+    const latest = String(data.latestVersion);
+    const comparable = /^\d+(?:\.\d+)+$/.test(current) && /^\d+(?:\.\d+)+$/.test(latest);
+    qs("appUpdateResult").textContent = current === latest ? "Esta instalação está na versão disponível no servidor." : !comparable ? "Versão disponível consultada. Não foi possível comparar com a instalação local." : current.localeCompare(latest, undefined, { numeric: true }) < 0 ? "Há uma versão mais recente. Feche e abra o aplicativo pelo executável para executar a atualização." : "A versão local é mais recente que a disponível no servidor.";
+  } catch (error) {
+    qs("appLatestVersion").textContent = "Consulta não concluída";
+    qs("appUpdateResult").textContent = `Não foi possível verificar: ${error.message}. Tente novamente quando o servidor estiver disponível.`;
+  } finally {
+    qs("appLastChecked").textContent = new Date().toLocaleString("pt-BR");
+    setButtonBusy(button, false);
+  }
+}
+
 function hasUsefulValue(value) {
   const text = String(value || "").trim();
-  return Boolean(text && !/^(?:N\/?A|NA|NÃO IDENTIFICAD[AO]|NAO IDENTIFICAD[AO])$/i.test(text));
+  return Boolean(text && !/^(?:N\/?A|NA|NÃO IDENTIFICAD[AO]|NAO IDENTIFICAD[AO]|UNKNOWN|DESCONHECID[AO]|INDEFINID[AO])$/i.test(text));
 }
 
 function hasSerialDivergence() {
@@ -279,25 +392,32 @@ function renderOperationalDashboard() {
   if (createCurrentOs && document.activeElement !== createCurrentOs) createCurrentOs.value = osLabel;
   const osVerified = Boolean(state.osDetail && state.osDetail.online && !hasSerialDivergence());
   const osReady = isWindowsPreview ? osVerified : state.osCreatedInSession;
-  const obsRequired = state.grade === "B" || state.grade === "C";
+  const obsRequired = window.CAIJ_OBSERVATION.requiresDetail(state.grade);
   const labelReady = hasUsefulValue(state.info.modelo) && hasUsefulValue(state.info.serial) &&
     (!obsRequired || qs("obs").value.trim()) &&
     window.CAIJ_OBSERVATION.fitsLabel(observationText("labelServiceChecklist", "obs", true));
   const readComplete = infoCount === fields.length;
-  const testsComplete = testsDone === testValues.length && testsFailed === 0;
+  const testsComplete = validTestSignature();
 
   qs("equipmentSummaryText").textContent = `${infoCount} de ${fields.length} informações identificadas`;
-  qs("homeTestProgress").textContent = `${testsDone} de ${testValues.length} realizados`;
+  qs("homeTestProgress").textContent = `${testsDone} de ${testValues.length} checklists preenchidos`;
   document.querySelectorAll("[data-home-test]").forEach((row) => {
     const result = state.tests[row.dataset.homeTest] || "pending";
     row.dataset.result = result;
-    row.querySelector("strong").textContent = result === "passed" ? "Aprovado" : result === "failed" ? "Reprovado" : "Pendente";
-    if (row.dataset.homeTest === "trackpad") row.querySelector("span").textContent = isWindowsPreview ? "Mouse / Touchpad" : "Trackpad";
+    row.querySelector("strong").textContent = window.CAIJ_TEST_CHECKLIST.resultLabels[result];
+    if (row.dataset.homeTest === "trackpad") row.querySelector("span").textContent = isWindowsPreview ? "Mouse / touchpad" : "Trackpad";
   });
   setWorkflowStep("workflowRead", "workflowReadStatus", `${infoCount} de ${fields.length} identificadas`, readComplete ? "complete" : "warning");
-  setWorkflowStep("workflowTests", "workflowTestsStatus", testsFailed ? `${testsFailed} com falha` : `${testsDone} de ${testValues.length} realizados`, testsFailed ? "failed" : testsComplete ? "complete" : "warning");
-  setWorkflowStep("workflowOs", "workflowOsStatus", osReady ? `${osLabel} conferida` : osLabel, osReady ? "complete" : "warning");
+  const confirmedWithRemarks = testsComplete && state.testSignature.mode === "REGISTRADO";
+  const testsWorkflowText = testsComplete ? confirmedWithRemarks ? "Confirmado com ressalvas" : "Checklist confirmado" : testsFailed ? `${testsFailed} com falha` : `${testsDone} de ${testValues.length} preenchidos`;
+  setWorkflowStep("workflowTests", "workflowTestsStatus", testsWorkflowText, testsFailed ? "failed" : testsComplete && !confirmedWithRemarks ? "complete" : "warning");
+  setWorkflowStep("workflowOs", "workflowOsStatus", osReady ? `${osLabel} conferido` : osLabel, osReady ? "complete" : "warning");
   setWorkflowStep("workflowLabel", "workflowLabelStatus", labelReady ? "Pronta para revisar" : "Informações pendentes", labelReady ? "complete" : "warning");
+  if (isWindowsPreview) {
+    qs("workflowReadStatus").textContent = readComplete ? "Concluída" : "Revisar dados";
+    qs("workflowTestsStatus").textContent = testsComplete ? testsWorkflowText : testsFailed ? `${testsFailed} com falha` : testsDone === testValues.length ? "Confirmar checklist" : "Preencher checklist";
+    qs("workflowOsStatus").textContent = osReady ? "Conferido" : "Conferir";
+  }
 
   const completed = [readComplete, testsComplete, osReady, labelReady].filter(Boolean).length;
   const pendingSteps = 4 - completed;
@@ -305,9 +425,9 @@ function renderOperationalDashboard() {
   qs("workflowOverall").title = pendingSteps ? `${pendingSteps} ${pendingSteps === 1 ? "etapa pendente" : "etapas pendentes"}` : "Fluxo pronto para finalizar";
 
   let next = { action: "labels", title: "Preparar etiqueta", description: "Confira a prévia antes de imprimir.", button: "Abrir etiquetas" };
-  if (!readComplete) next = { action: "edit", title: "Completar informações", description: `${fields.length - infoCount} campos ainda precisam de revisão.`, button: "Revisar dados" };
-  else if (!testsComplete) next = { action: "tests", title: testsFailed ? "Revisar testes" : "Executar testes", description: testsFailed ? "Há teste marcado com falha." : `${testValues.length - testsDone} testes ainda estão pendentes.`, button: "Abrir testes" };
-  else if (!osReady) next = { action: "create-os", title: "Cadastrar rastreador", description: `${osLabel} ainda precisa ser conferido no AlterTag.`, button: "Cadastrar rastreador" };
+  if (!readComplete) next = { action: "edit", title: "Completar informações", description: `${fields.length - infoCount} ${fields.length - infoCount === 1 ? "campo ainda precisa" : "campos ainda precisam"} de revisão.`, button: "Revisar dados" };
+  else if (!testsComplete) next = { action: "tests", title: testsFailed ? "Revisar testes" : testsDone === testValues.length ? "Confirmar checklist" : "Executar testes", description: testsFailed ? "Confira os itens reprovados e registre as justificativas." : testsDone === testValues.length ? "O técnico precisa confirmar o relatório." : `${testValues.length - testsDone} ${testValues.length - testsDone === 1 ? "checklist ainda está pendente" : "checklists ainda estão pendentes"}.`, button: "Abrir testes" };
+  else if (!osReady) next = { action: "create-os", title: "Revisar rastreador", description: osNumber ? `Confira os dados de ${osLabel} no AlterTag antes de continuar.` : "Selecione ou cadastre o rastreador deste equipamento.", button: "Abrir cadastro" };
   qs("nextActionTitle").textContent = next.title;
   qs("nextActionDescription").textContent = next.description;
   qs("nextActionButton").textContent = next.button;
@@ -315,8 +435,8 @@ function renderOperationalDashboard() {
 
   const alerts = [];
   const serialDivergent = hasSerialDivergence();
-  if (!state.environment.internetOnline) alerts.push("Notebook sem conexão com a internet.");
-  if (!state.environment.serverOnline) alerts.push("Servidor CAIJ indisponível.");
+  if (!state.environment.internetOnline) alerts.push("Equipamento sem conexão com a internet.");
+  if (!state.environment.serverOnline) alerts.push("Conexão com o servidor CAIJ não confirmada. Verifique a conexão antes de cadastrar ou imprimir.");
   if (serialDivergent) alerts.push(`Equipamento: ${state.info.serial || "não informado"} • Rastreador: ${state.osDetail.serial || "não informado"}`);
   if (testsFailed) alerts.push(`${testsFailed} teste${testsFailed > 1 ? "s" : ""} marcado${testsFailed > 1 ? "s" : ""} com falha.`);
   if (state.operationalError) alerts.push(state.operationalError);
@@ -327,7 +447,7 @@ function renderOperationalDashboard() {
   qs("operationalAlertsList").innerHTML = uniqueAlerts.map((alert) => `<li>${escapeHtml(alert)}</li>`).join("");
 
   const last = state.lastPrint;
-  qs("lastPrintValue").textContent = last ? (last.os === "Sem OS" ? "Sem rastreador" : (last.os || "Sem rastreador")) : "Nenhuma nesta sessão";
+  qs("lastPrintValue").textContent = last ? (last.os === "Sem OS" ? "Sem rastreador" : (last.os || "Sem rastreador")) : "Nenhuma etiqueta registrada";
   qs("lastPrintMeta").textContent = last ? `${last.modelo || "Equipamento"} • ${last.horario || ""}` : "A impressão mais recente aparecerá aqui.";
   qs("reprintLast").classList.toggle("hidden", !last);
   renderPrintHistory();
@@ -353,28 +473,35 @@ function gradeValue() {
 }
 
 function checkedServices(containerId) {
-  return [...qs(containerId).querySelectorAll('input[type="checkbox"]:checked')].map((input) => input.value);
+  return [...qs(containerId).querySelectorAll('input[type="checkbox"]:checked')].map((input) => input.value).filter((id) => id !== "tests" || (validTestSignature() && state.testSignature.mode === "APROVADO"));
 }
 
 function currentTestsStatus() {
   const values = Object.values(state.tests);
   if (values.includes("failed")) return "FALHOU";
-  return values.includes("pending") ? "" : "OK";
+  return validTestSignature() && state.testSignature.mode === "APROVADO" ? "OK" : "";
 }
 
 function observationText(containerId, noteId, label = false) {
-  return window.CAIJ_OBSERVATION.build({
-    ids: checkedServices(containerId),
+  const targetSerial = containerId === "createServiceChecklist" ? qs("createSerial").value.trim() : String(state.info.serial || "").trim();
+  const matchingSignature = validTestSignature() && targetSerial === state.testSignature.serial;
+  const base = window.CAIJ_OBSERVATION.build({
+    ids: checkedServices(containerId).filter((id) => id !== "tests" || matchingSignature),
     note: qs(noteId).value,
-    testsStatus: currentTestsStatus(),
+    testsStatus: matchingSignature ? currentTestsStatus() : "",
     label,
   });
+  if (!label && matchingSignature) {
+    return [base, window.CAIJ_TEST_CHECKLIST.buildReport(state.testSignature)].filter(Boolean).join("\n\n");
+  }
+  return base;
 }
 
 function renderObservationPreviews() {
+  updateGradeObservationRequirements();
   const labelText = observationText("labelServiceChecklist", "obs", true);
   const labelOutput = qs("labelObservationPreview");
-  labelOutput.textContent = labelText || "Nenhum serviço ou observação informado.";
+  labelOutput.textContent = labelText || "Nenhum serviço selecionado ou observação preenchida.";
   qs("thermalObservation").classList.toggle("hidden", !labelText);
   qs("labelPreviewObservation").textContent = labelText;
   const fits = window.CAIJ_OBSERVATION.fitsLabel(labelText);
@@ -472,6 +599,7 @@ function renderOsVerification(detail = state.osDetail) {
   if (!isWindowsPreview) return renderOperationalDashboard();
   const panel = qs("osVerification");
   panel.classList.remove("loading", "synced", "divergent");
+  setLoadingContent(qs("osVerificationStatus"), "");
   if (!detail) {
     qs("verifyOs").textContent = "—";
     qs("verifyProduct").textContent = "Aguardando rastreador";
@@ -502,7 +630,7 @@ async function refreshOsVerification(explicitOsNumber = 0) {
   }
   const panel = qs("osVerification");
   panel.classList.add("loading");
-  qs("osVerificationStatus").textContent = "Consultando Altertag...";
+  setLoadingContent(qs("osVerificationStatus"), "Consultando o AlterTag...", true);
   try {
     const data = await api("/api/os-detail", { osNumero });
     if (requestId !== osVerificationRequest || osNumero !== osNumberFromInput()) return;
@@ -539,7 +667,7 @@ function scheduleOsIdentification(event) {
   }
   if (isWindowsPreview) {
     qs("osVerification").classList.add("loading");
-    qs("osVerificationStatus").textContent = "Identificando rastreador...";
+    setLoadingContent(qs("osVerificationStatus"), "Identificando rastreador...", true);
   }
   setStatus("Identificando rastreador digitado...", "busy");
   osInputTimer = window.setTimeout(async () => {
@@ -568,7 +696,8 @@ function renderDevice() {
   const notebookModel = /\b(notebook|laptop|macbook|thinkpad|latitude|elitebook|probook|ideapad|yoga|aspire|vivobook|zenbook|pavilion|surface)\b/i.test(model);
   const differentDevice = /\b(desktop|monitor|iphone|ipad|tablet|all.in.one|optiplex|prodesk|elitedesk)\b/i.test(model);
   const showNotebookPhoto = state.equipmentType === "Notebook" && !differentDevice && (notebookModel || hasUsefulValue(state.info.bateria));
-  qs("deviceModelHeading").textContent = model || (state.deviceReading === "pending" ? "Lendo equipamento..." : "Equipamento não identificado");
+  setLoadingContent(qs("deviceModelHeading"), model || (state.deviceReading === "pending" ? "Lendo equipamento..." : "Equipamento não identificado"), state.deviceReading === "pending");
+  qs("deviceSerialHeading").textContent = String(state.info.serial || "").trim() || (state.deviceReading === "pending" ? "Leitura em andamento" : "Não identificada");
   qs("devicePhoto").classList.toggle("hidden", !showNotebookPhoto);
   if (showNotebookPhoto) {
     const photo = qs("devicePhotoImage");
@@ -590,7 +719,7 @@ function renderDevice() {
   }
   read.parentElement.classList.toggle("has-photo", showNotebookPhoto);
   if (isWindowsPreview) {
-    const windowsFields = ["modelo", "serial", "cpu", "disco", "gpu", "ram", "bateria"];
+    const windowsFields = ["modelo", "cpu", "disco", "gpu", "ram", "bateria"];
     const spanTwo = new Set(["modelo", "cpu", "gpu"]);
     read.className = "device-specs-wrap";
     read.innerHTML = `
@@ -598,7 +727,7 @@ function renderDevice() {
         ${windowsFields.map((key, index) => `
           <article class="device-spec spec-${key} ${spanTwo.has(key) ? "wide" : ""} ${key === "bateria" ? "full" : ""}" style="animation-delay:${index * 28}ms">
             <span>${labels[key]}</span>
-            <div class="device-spec-value"><strong>${escapeHtml(state.info[key] || "N/A")}</strong>${key === "ram" && ramDetailLines.length ? `<small class="ram-details">${ramDetailLines.map((line) => `<span>${escapeHtml(line)}</span>`).join("")}</small>` : ""}</div>
+            <div class="device-spec-value"><strong>${escapeHtml(hasUsefulValue(state.info[key]) ? state.info[key] : "Não identificado")}</strong>${(!hasUsefulValue(state.info[key]) || key === "ram") ? `<button type="button" class="field-review-button" data-edit-device="${key}">${key === "ram" && hasUsefulValue(state.info[key]) ? "Conferir posições / RAM soldada" : "Preencher dado"}</button>` : ""}${key === "ram" && ramDetailLines.length ? `<small class="ram-details">${ramDetailLines.map((line) => `<span>${escapeHtml(line)}</span>`).join("")}</small>` : ""}</div>
           </article>
         `).join("")}
       </div>
@@ -608,7 +737,7 @@ function renderDevice() {
   read.innerHTML = `
     <table class="device-table">
       <thead>
-        <tr><th>Informacao</th><th>Valor detectado</th></tr>
+        <tr><th>Informação</th><th>Valor detectado</th></tr>
       </thead>
       <tbody>
         ${fields.map((key, index) => `
@@ -628,6 +757,7 @@ function renderDevice() {
     if (input) input.value = state.info[key] || "";
   });
   if (form.elements.ramDetalhes) form.elements.ramDetalhes.value = state.info.ramDetalhes || "";
+  renderDeviceReview();
   renderPreview();
 }
 
@@ -668,6 +798,8 @@ function renderPreview() {
   if (qs("previewMetaGrade")) qs("previewMetaGrade").textContent = `Grade ${gradeValue()}`;
   if (qs("previewMetaOs")) qs("previewMetaOs").textContent = qs("includeOs").checked ? `Rastreador ${formattedOs}` : "Rastreador não incluído";
   qs("labelPreviewOs").textContent = qs("includeOs").checked ? formattedOs : "NÃO INCLUÍDO";
+  if (window.CaijQrPreview) window.CaijQrPreview.render(qs("labelPreviewQr"),
+    `PREVIA INFOMACHINE\nSerial: ${state.info.serial || "N/A"}\nRastreador: ${qs("includeOs").checked ? formattedOs : "NAO INCLUIDO"}`);
   qs("labelPreviewDate").textContent = new Date().toLocaleDateString("pt-BR", {
     day: "2-digit",
     month: "2-digit",
@@ -690,7 +822,7 @@ function populateLabelEditor() {
 
 function setLabelEditorOpen(open) {
   qs("labelEditForm").classList.toggle("hidden", !open);
-  qs("toggleLabelEditor").textContent = open ? "Editando dados" : "Editar dados da etiqueta";
+  qs("toggleLabelEditor").textContent = open ? "Fechar edição da etiqueta" : "Editar dados da etiqueta";
   qs("toggleLabelEditor").classList.toggle("active", open);
   if (open) {
     populateLabelEditor();
@@ -722,7 +854,7 @@ function showAppView(view) {
     populateLabelEditor();
     renderPreview();
   }
-  if (state.view === "tests") renderTests();
+  if (state.view === "tests") { renderTests(); syncTestsViewport(); if (!state.activeTest) void openFirstOpenStep(); }
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -751,6 +883,7 @@ function escapeHtml(value) {
 function applyState(data) {
   state.deviceReading = data.deviceReading || 'ready';
   state.info = data.info || state.info || {};
+  syncTestEquipment();
   if (typeof state.info.bateria === "string") state.info.bateria = state.info.bateria.replaceAll("saÃºde", "saúde");
   state.equipmentType = data.equipmentType || state.equipmentType || "Notebook";
   state.manualOsSet = Boolean(data.manualOsSet);
@@ -761,12 +894,12 @@ function applyState(data) {
   if (Number(data.pendingCreatedOs || 0) === Number(data.osNumero || 0) && Number(data.osNumero || 0) > 0) {
     state.osCreatedInSession = true;
   }
-  qs("serverLine").textContent = `Servidor: ${data.serverUrl || "nao configurado"} | ${data.lastServerStatus || "nao verificado"}`;
+  qs("serverLine").textContent = `Servidor: ${data.serverUrl || "não configurado"} | ${data.lastServerStatus || "não verificado"}`;
   setEnvironmentStatus(data);
   renderDevice();
   renderCurrentConfig();
   renderOperationalDashboard();
-  if (qs("printBtn").getAttribute("aria-busy") !== "true") qs("printBtn").disabled = state.deviceReading !== 'ready';
+  updateGradeObservationRequirements();
   updateCreateOsState();
   renderSerialOsLookup();
   refreshKeyboardLayoutForDevice();
@@ -792,6 +925,7 @@ function renderSerialOsLookup() {
     const panel = qs(id);
     panel.classList.toggle("hidden", !visible);
     if (visible) panel.innerHTML = `<div class="serial-os-lookup-head"><span>HISTÓRICO POR SERIAL · ${escapeHtml(lookup.serial)}</span><strong>${title}</strong><small>${escapeHtml(lookup.message || "")}</small></div><div class="serial-os-options">${buttons}${retry}</div>`;
+    if (visible) setLoadingContent(panel.querySelector(".serial-os-lookup-head > strong"), title, lookup.status === "searching");
   });
 }
 
@@ -874,11 +1008,13 @@ function setEnvironmentStatus(data) {
   const server = qs("serverBadge");
   internet.classList.toggle("online", internetOnline);
   internet.classList.toggle("offline", !internetOnline);
-  internet.lastChild.textContent = internetOnline ? " Internet online" : " Sem internet";
+  internet.lastChild.textContent = internetOnline ? " Internet conectada" : " Sem internet";
   server.classList.toggle("online", serverOnline);
   server.classList.toggle("offline", !serverOnline);
-  server.lastChild.textContent = serverOnline ? " Servidor online" : " Servidor aguardando";
-  qs("versionBadge").textContent = runtime.version ? `v${runtime.version}` : "Versao local";
+  server.lastChild.textContent = serverOnline ? " Servidor online" : " Servidor não confirmado";
+  state.appInfo = { ...state.appInfo, version: data.version || runtime.version || "", versionRecordedAt: data.versionRecordedAt || runtime.versionRecordedAt || "" };
+  qs("versionBadge").textContent = state.appInfo.version ? `v${state.appInfo.version}` : "Versão local";
+  renderAppInfo();
   renderOperationalDashboard();
 }
 
@@ -901,7 +1037,7 @@ function showOsAlert(data, localCreation = false) {
   qs("osAlertTitle").textContent = localCreation ? "Rastreador criado com sucesso" : "Novo rastreador detectado";
   qs("alertCopySuffix").textContent = localCreation
     ? "Esta é a ordem vinculada ao atendimento e preparada para a etiqueta."
-    : "Esta ordem foi criada em outra estação.";
+    : "Este rastreador foi criado em outra estação.";
   qs("printCreatedOs").classList.toggle("hidden", !localCreation);
   qs("dismissOsAlert").textContent = localCreation ? "Voltar ao menu" : "Entendido";
   qs("osAlert").classList.remove("hidden");
@@ -912,29 +1048,253 @@ function closeOsAlert() {
   qs("osAlert").classList.add("hidden");
 }
 
-function closeTestsPanel() {
-  stopActiveTest();
+async function closeTestsPanel() {
   if (testsOnlyMode) {
+    if (!validTestSignature()) { openReview(); qs("activeTestBlockers").textContent = "Confirme o checklist antes de retornar o relatório ao InfoNotebook."; return; }
+    stopActiveTest();
+    await copyText(testsReport());
     document.title = "CAIJ_TESTES_CONCLUIDOS";
     qs("closeTests").textContent = "Retornando...";
     qs("closeTests").disabled = true;
     return;
   }
+  stopActiveTest();
   showAppView("home");
+}
+
+function syncTestsViewport() {
+  const card = document.querySelector("#testsView .tests-card");
+  if (!card || qs("testsView").classList.contains("hidden")) return;
+  card.style.setProperty("--tests-top", `${Math.max(0, Math.round(card.getBoundingClientRect().top + window.scrollY))}px`);
+  // Whatever the shell adds below the card (margins, padding) is measured, so the page itself never scrolls.
+  card.style.setProperty("--tests-bottom", "28px");
+  const overflow = document.documentElement.scrollHeight - window.innerHeight;
+  if (overflow > 0) card.style.setProperty("--tests-bottom", `${28 + overflow}px`);
+}
+
+function testConfirmationData() {
+  const items = state.testChecklist.map((item) => ({ ...item }));
+  const mode = items.some((item) => ["failed", "untested"].includes(item.result)) ? "REGISTRADO" : "APROVADO";
+  const aesthetic = state.aestheticRecord && window.CAIJ_AESTHETIC_TRIAGE?.validate(state.aestheticRecord).ok ? structuredClone(state.aestheticRecord) : undefined;
+  return { technician: qs("testTechnician").value.trim(), serial: String(state.info.serial || (testsOnlyMode ? qs("testEquipmentSerial").value : "") || "").trim(), items, mode, notes: qs("testGeneralNotes").value.trim(), aesthetic };
+}
+
+function validTestSignature() {
+  return window.CAIJ_TEST_CHECKLIST.signatureMatches(state.testSignature, testConfirmationData());
+}
+
+function readTestHistory() {
+  if (state.testRecords) return state.testRecords;
+  try { const history = JSON.parse(localStorage.getItem("caij:hardware-test-records") || "[]"); return Array.isArray(history) ? history.filter((record) => record && Array.isArray(record.items) && record.serial && record.confirmedAt) : []; }
+  catch (_) { return []; }
+}
+
+function invalidateTestConfirmation() {
+  if (state.testSignature) {
+    try { localStorage.removeItem("caij:hardware-test-last-confirmed"); } catch (_) {}
+  }
+  if (state.testSignature) {
+    state.testSignature = null;
+    qs("testConfirmationStatus").textContent = "O relatório mudou. Confira os resultados e confirme novamente.";
+  }
+  qs("testAttestation").checked = false;
+  qs("testConfirmationWord").value = "";
+  try { localStorage.removeItem("caij:mac-tests-observation"); localStorage.removeItem("caij:hardware-test-current"); } catch (_) {}
+}
+
+function syncTestEquipment() {
+  const serial = String(state.info.serial || "").trim();
+  if (serial !== state.testSessionSerial) {
+    invalidateTestConfirmation();
+    state.testSessionSerial = serial;
+    state.testChecklist = window.CAIJ_TEST_CHECKLIST.createChecklist({ usbPorts: ["USB 1", "USB 2"] });
+    try { state.aestheticRecord = JSON.parse(localStorage.getItem(`caij:aesthetic:${serial}`) || "null"); } catch (_) { state.aestheticRecord = null; }
+    if (!state.aestheticRecord || state.aestheticRecord.rulesVersion !== window.CAIJ_AESTHETIC_TRIAGE?.rulesVersion) state.aestheticRecord = window.CAIJ_AESTHETIC_TRIAGE?.createRecord() || null;
+    state.keyboardFnOverride = null;
+    state.keyboardProfile = null;
+    state.keyboardCustomNumpad = false;
+    state.keyboardPressed = null;
+    state.keyboardRecentEvents = [];
+    Object.keys(state.tests).forEach((key) => state.tests[key] = "pending");
+    stopActiveTest();
+    qs("testGeneralNotes").value = "";
+    // Only restore the explicitly confirmed current session for this exact equipment.
+    try {
+      const record = JSON.parse(localStorage.getItem("caij:hardware-test-last-confirmed") || "null");
+      if (record?.serial === serial && window.CAIJ_TEST_CHECKLIST.validateConfirmation(record).ok && window.CAIJ_TEST_CHECKLIST.signatureMatches(record, record)) {
+        state.testChecklist = record.items;
+        if (record.aesthetic && !state.aestheticRecord?.parts?.some((part) => part.status)) state.aestheticRecord = record.aesthetic;
+        qs("testTechnician").value = record.technician;
+        qs("testGeneralNotes").value = record.notes || "";
+        state.testSignature = record;
+      }
+    } catch (_) {}
+  }
+  qs("testEquipmentSerial").value = serial;
+  renderTests();
+  if (state.view === "tests" && !state.activeTest) void openFirstOpenStep();
+}
+
+function deriveChecklistResults() {
+  for (const test of testSequence) {
+    const values = state.testChecklist.filter((item) => item.testId === test).map((item) => item.result);
+    state.tests[test] = values.includes("pending") || !values.length ? "pending" : values.includes("failed") ? "failed" : values.includes("untested") ? "untested" : values.every((value) => value === "not_applicable") ? "not_applicable" : "passed";
+  }
+}
+
+const evidenceRequiredItems = ["audio.speakers", "trackpad.movement", "trackpad.buttons", "charger.connectors", "network.ethernet", "network.wifi"];
+const requiresItemEvidence = (id) => evidenceRequiredItems.includes(id) || /^usb\.port-[1-9]\d*$/.test(id);
+
+function testBlockers(test) {
+  return state.testChecklist.filter((item) => item.testId === test).flatMap((item) => {
+    const reason = item.result === "pending" ? (requiresItemEvidence(item.id) && !item.evidence ? "evidence" : "pending")
+      : ["failed", "untested"].includes(item.result) && !String(item.notes || "").trim() ? "justification" : "";
+    return reason ? [{ id: item.id, label: item.label, reason }] : [];
+  });
+}
+
+function testRailState(test) {
+  const results = state.testChecklist.filter((item) => item.testId === test).map((item) => item.result);
+  if (results.every((result) => result === "pending")) return "pending";
+  if (testBlockers(test).length) return "incomplete";
+  if (results.includes("failed")) return "failed";
+  if (results.includes("untested")) return "untested";
+  return results.every((result) => result === "not_applicable") ? "not_applicable" : "passed";
+}
+
+function blockersText(test) {
+  const blockers = testBlockers(test);
+  if (!blockers.length) return "Tudo preenchido neste teste.";
+  const suffix = { evidence: " (detecção)", justification: " (justificativa)", pending: "" };
+  const names = blockers.slice(0, 3).map((blocker) => `${blocker.label}${suffix[blocker.reason]}`).join(", ");
+  const more = blockers.length > 3 ? ` e mais ${blockers.length - 3}` : "";
+  return blockers.length === 1 ? `Falta 1 item: ${names}` : `Faltam ${blockers.length} itens: ${names}${more}`;
+}
+
+function approvePendingItems(test) {
+  const needsEvidence = new Set(testBlockers(test).filter((blocker) => blocker.reason === "evidence").map((blocker) => blocker.id));
+  let changed = 0;
+  for (const item of state.testChecklist) {
+    if (item.testId !== test || item.result !== "pending" || needsEvidence.has(item.id)) continue;
+    item.result = "passed";
+    changed += 1;
+  }
+  return changed;
+}
+
+const railStateLabels = { passed: ["✓", "Aprovado"], failed: ["✕", "Reprovado"], untested: ["!", "Com ressalva"], not_applicable: ["–", "Não se aplica"], incomplete: ["!", "Falta"], pending: ["○", "Pendente"] };
+
+function renderTestRail() {
+  const entries = testSequence.map((test) => {
+    const railState = testRailState(test);
+    const [icon, text] = railStateLabels[railState];
+    const status = railState === "incomplete" ? `Falta ${testBlockers(test).length}` : text;
+    return `<li data-state="${railState}"${test === state.activeTest ? ' aria-current="step"' : ""}><button type="button" data-rail-test="${test}" title="${escapeHtml(testLabels[test])}: ${status}"><span class="rail-icon" aria-hidden="true">${icon}</span><span class="rail-copy"><strong>${escapeHtml(testLabels[test])}</strong><span>${status}</span></span></button></li>`;
+  });
+  entries.push(`<li class="rail-review" data-state="review"${state.activeTest === "review" ? ' aria-current="step"' : ""}><button type="button" data-rail-test="review"><span class="rail-icon" aria-hidden="true">▸</span><span class="rail-copy"><strong>Revisão e confirmação</strong></span></button></li>`);
+  qs("testRail").innerHTML = entries.join("");
+}
+
+function reviewSummaryHtml() {
+  return testSequence.map((test) => {
+    const railState = testRailState(test);
+    const [icon, text] = railStateLabels[railState];
+    const open = ["pending", "incomplete"].includes(railState);
+    return `<li data-state="${railState}"><button type="button" data-review-test="${test}"><span class="rail-icon" aria-hidden="true">${icon}</span><span class="review-copy"><strong>${escapeHtml(testLabels[test])}</strong><span>${open ? escapeHtml(blockersText(test)) : text}</span></span></button></li>`;
+  }).join("");
+}
+
+function renderHardwareChecklist() {
+  const test = state.activeTest;
+  const blocked = new Map(testBlockers(test).map((blocker) => [blocker.id, blocker.reason]));
+  qs("hardwareChecklistItems").innerHTML = state.testChecklist.filter((item) => item.testId === test).map((item) => {
+    const exception = ["failed", "untested"].includes(item.result);
+    const removable = item.id.startsWith("usb.port-") ? `<button type="button" class="usb-port-remove" data-usb-remove="${item.id}" aria-label="Remover ${escapeHtml(item.label)}" title="Remover porta">×</button>` : "";
+    const showNote = exception || Boolean(item.notes) || state.checklistNotesOpen.has(item.id);
+    const addNote = showNote ? "" : `<button type="button" class="hardware-check-add-note" data-note-open="${item.id}">+ observação</button>`;
+    const resultButton = (result, text) => `<button type="button" class="check-result-button check-result-${result}" data-check-result="${item.id}" data-check-value="${result}" aria-pressed="${item.result === result}">${text || escapeHtml(window.CAIJ_TEST_CHECKLIST.resultLabels[result])}</button>`;
+    const choices = `<fieldset class="check-result-options"><legend>Resultado: ${escapeHtml(item.label)}</legend>${resultButton("passed", '<span aria-hidden="true">✓</span> Aprovado')}${resultButton("failed", '<span aria-hidden="true">✕</span> Reprovado')}${resultButton("not_applicable")}${resultButton("untested")}</fieldset>`;
+    const requiresEvidence = requiresItemEvidence(item.id);
+    const evidenceView = requiresEvidence ? `<p class="hardware-check-evidence">${item.evidence ? `${item.evidence.source === "manual" ? "Verificação manual" : "Detecção registrada"}: ${escapeHtml(item.evidence.detail)}` : "Aguardando detecção automática."}</p>${item.evidence?.source === "auto" ? "" : `<button type="button" class="secondary hardware-check-manual" data-evidence-manual="${item.id}">${item.evidence?.source === "manual" ? "Alterar justificativa manual" : "Detecção falhou? Registrar verificação manual"}</button>`}` : "";
+    const note = showNote ? `<label class="hardware-check-note" for="note-${item.id}">${exception ? "Justificativa obrigatória" : "Observação (opcional)"}<input id="note-${item.id}" data-check-note="${item.id}" maxlength="500" value="${escapeHtml(item.notes)}"${exception ? " required" : ""} placeholder="${exception ? "Descreva o defeito ou o motivo de não ter testado" : "Detalhe observado"}"></label>` : "";
+    return `<article class="hardware-check-item hardware-check-compact" data-result="${item.result}"${blocked.has(item.id) ? ` data-blocked="${blocked.get(item.id)}"` : ""}><div class="hardware-check-identity"><span class="hardware-check-label">${escapeHtml(item.label)}</span>${removable}${addNote}${evidenceView}</div>${choices}${note}</article>`;
+  }).join("");
+  qs("usbPortTools").classList.toggle("hidden", test !== "usb");
+  qs("hardwareChecklistStatus").textContent = "";
+}
+
+function renderTestConfirmation() {
+  const data = testConfirmationData();
+  const validation = window.CAIJ_TEST_CHECKLIST.validateConfirmation(data);
+  const signed = validTestSignature();
+  qs("testConfirmationInstruction").textContent = data.mode === "REGISTRADO"
+    ? "Há item reprovado ou não testado. Digite REGISTRADO para confirmar o relatório com essas ressalvas."
+    : "Digite APROVADO para confirmar os itens aplicáveis. Os itens marcados Não se aplica continuarão identificados no relatório.";
+  qs("testConfirmationWord").placeholder = data.mode;
+  qs("confirmHardwareTests").disabled = state.testConfirmationSaving || !validation.ok || !qs("testAttestation").checked || qs("testConfirmationWord").value !== data.mode || signed;
+  if (signed) qs("testConfirmationStatus").textContent = `Confirmado por ${state.testSignature.technician} em ${new Date(state.testSignature.confirmedAt).toLocaleString("pt-BR")}. ${state.testRecordsDurable ? "Relatório salvo neste computador." : "Disponível nesta sessão. Copie o relatório antes de fechar."} O relatório será incluído na observação ao cadastrar o rastreador desta serial.`;
+  else if (!validation.ok) qs("testConfirmationStatus").textContent = validation.errors[0];
+  else qs("testConfirmationStatus").textContent = "Checklist preenchido. Revise os resultados, marque a declaração e digite a palavra indicada para confirmar.";
+  qs("testConfirmationHistory").innerHTML = readTestHistory().slice(0, 20).map((record, index) => `<li><button type="button" class="secondary" data-copy-test-record="${index}">${escapeHtml(record.serial)} · ${escapeHtml(record.technician)} · ${escapeHtml(record.mode)} · ${escapeHtml(new Date(record.confirmedAt).toLocaleString("pt-BR"))} — copiar relatório</button></li>`).join("") || "<li>Nenhum relatório local confirmado.</li>";
+  if (state.activeTest === "review") renderActionBar();
+}
+
+async function loadTestRecords() {
+  if (testsOnlyMode && window.location.protocol === "file:") return;
+  try {
+    const data = await api("/api/test-records");
+    if (data.ok && Array.isArray(data.records)) { state.testRecords = data.records.filter((record) => record && Array.isArray(record.items) && record.serial && record.confirmedAt).sort((a, b) => String(b.confirmedAt).localeCompare(String(a.confirmedAt))); state.testRecordsDurable = true; renderTestConfirmation(); }
+  } catch (_) { /* The standalone browser can still return a confirmed report to the native app. */ }
+}
+
+async function confirmHardwareTests() {
+  if (state.testConfirmationSaving) return;
+  const data = testConfirmationData();
+  const validation = window.CAIJ_TEST_CHECKLIST.validateConfirmation(data);
+  if (!validation.ok || !qs("testAttestation").checked || qs("testConfirmationWord").value !== data.mode) {
+    qs("testConfirmationStatus").textContent = validation.errors[0] || "Marque a declaração e digite a palavra exatamente como indicada.";
+    return;
+  }
+  const record = { ...data, confirmedAt: new Date().toISOString(), fingerprint: window.CAIJ_TEST_CHECKLIST.fingerprint(data) };
+  const history = [record, ...readTestHistory()].slice(0, 100);
+  state.testConfirmationSaving = true;
+  qs("confirmHardwareTests").disabled = true;
+  let durable = false;
+  if (!(testsOnlyMode && window.location.protocol === "file:")) {
+    try {
+      const saved = await api("/api/test-records", record);
+      if (!saved.ok || !saved.record) throw new Error(saved.message || "Não foi possível gravar o relatório local.");
+      durable = true;
+    } catch (error) {
+      state.testConfirmationSaving = false;
+      qs("testConfirmationStatus").textContent = `A confirmação não foi salva: ${error.message}. Tente novamente.`;
+      renderTestConfirmation();
+      qs("testConfirmationStatus").textContent = `A confirmação não foi salva: ${error.message}. Tente novamente.`;
+      return;
+    }
+  }
+  try {
+    localStorage.setItem("caij:hardware-test-records", JSON.stringify(history));
+    localStorage.setItem("caij:hardware-test-last-confirmed", JSON.stringify(record));
+    localStorage.setItem("caij:mac-tests-observation", window.CAIJ_TEST_CHECKLIST.buildReport(record));
+  } catch (_) {
+    if (!durable) { state.testConfirmationSaving = false; qs("testConfirmationStatus").textContent = "Não foi possível salvar o registro nesta sessão. Libere armazenamento e tente novamente."; return; }
+  }
+  state.testConfirmationSaving = false;
+  state.testRecords = history;
+  state.testRecordsDurable = durable;
+  state.testSignature = record;
+  renderTests();
 }
 
 function testsOverall() {
   const values = Object.values(state.tests);
-  return values.includes("failed") ? "FALHOU" : values.includes("pending") ? "PENDENTE" : "OK";
+  return values.includes("failed") ? "FALHOU" : values.includes("pending") ? "PENDENTE" : !validTestSignature() ? "AGUARDANDO CONFIRMAÇÃO" : values.includes("untested") ? "COM RESSALVAS" : "OK";
 }
 
 function testsReport() {
-  const overall = testsOverall();
-  const statusLabel = { passed: "OK", failed: "FALHOU", pending: "PENDENTE" };
-  const details = Object.entries(state.tests)
-    .map(([key, value]) => `${testLabels[key]}: ${statusLabel[value]}`)
-    .join(" | ");
-  return `TESTES: ${overall} | ${details}`;
+  if (validTestSignature()) return window.CAIJ_TEST_CHECKLIST.buildReport(state.testSignature);
+  return window.CAIJ_TEST_CHECKLIST.buildReport(testConfirmationData());
 }
 
 function testsLabelSummary() {
@@ -942,57 +1302,91 @@ function testsLabelSummary() {
 }
 
 function syncCompletedTestsToRecord(pending) {
-  const failed = Object.values(state.tests).includes("failed");
+  const confirmed = validTestSignature();
+  const approved = confirmed && state.testSignature.mode === "APROVADO";
   document.querySelectorAll('#labelServiceChecklist input[value="tests"], #createServiceChecklist input[value="tests"]').forEach((input) => {
-    if (failed) input.checked = false;
-    input.disabled = failed;
-    input.title = failed ? "Há um teste reprovado; corrija o resultado antes de marcar aprovado." : "";
+    input.checked = approved;
+    input.disabled = true;
+    input.title = approved ? "Aprovação confirmada pelo técnico no checklist." : "Preencha o checklist e confirme o relatório para registrar aprovação.";
   });
-  if (pending > 0) {
+  if (pending > 0 || !confirmed) {
     qs("finishTests").classList.add("hidden");
-    qs("testsActionStatus").textContent = "";
+    qs("testsActionStatus").textContent = "Aguardando checklist e confirmação do técnico.";
     renderObservationPreviews();
     return;
   }
-  const report = testsLabelSummary();
-  try { localStorage.setItem("caij:mac-tests-observation", report); } catch (_) {}
   qs("finishTests").classList.remove("hidden");
-  qs("testsActionStatus").textContent = "Resultado incluído automaticamente no registro.";
+  qs("testsActionStatus").textContent = "Relatório confirmado. Ele será enviado ao AlterTag ao cadastrar o rastreador desta serial.";
   renderObservationPreviews();
 }
 
 function renderTests() {
+  deriveChecklistResults();
+  if (state.testSignature && !validTestSignature()) invalidateTestConfirmation();
   const values = Object.values(state.tests);
   const passed = values.filter((value) => value === "passed").length;
   const failed = values.filter((value) => value === "failed").length;
-  const pending = values.length - passed - failed;
-  const completion = Math.round(((passed + failed) / values.length) * 100);
-  qs("testsPassed").textContent = passed;
-  qs("testsFailed").textContent = failed;
-  qs("testsPending").textContent = pending;
-  qs("testsCompletion").textContent = `${passed + failed} de ${values.length} concluídos`;
+  const pending = values.filter((value) => value === "pending").length;
+  const done = values.length - pending;
+  const completion = Math.round((done / values.length) * 100);
+  qs("testsCompletion").textContent = `${done} de ${values.length}`;
   qs("testsProgress").style.width = `${completion}%`;
-  qs("testsReport").textContent = testsReport();
-  qs("testList").querySelectorAll(".test-row").forEach((row) => {
-    const status = state.tests[row.dataset.test];
-    const previousStatus = row.dataset.renderedStatus || "";
-    row.classList.remove("passed", "failed");
-    if (status !== "pending") row.classList.add(status);
-    row.dataset.renderedStatus = status;
-    if (previousStatus && previousStatus !== status) {
-      row.classList.remove("status-changed");
-      void row.offsetWidth;
-      row.classList.add("status-changed");
-    }
-    row.querySelector(".test-state").textContent = status === "passed" ? "Passou" : status === "failed" ? "Falhou" : "Pendente";
-    row.querySelectorAll("button[data-action]").forEach((button) => {
-      const selected = (button.dataset.action === "pass" && status === "passed") || (button.dataset.action === "fail" && status === "failed");
-      button.classList.toggle("selected", selected);
-      if (button.dataset.action === "pass" || button.dataset.action === "fail") button.setAttribute("aria-pressed", String(selected));
-    });
-  });
+  qs("testsHeadSerial").textContent = qs("testEquipmentSerial").value ? `Serial ${qs("testEquipmentSerial").value}` : "";
+  qs("testsReport").textContent = `${passed} ${passed === 1 ? "aprovado" : "aprovados"} · ${failed} ${failed === 1 ? "reprovado" : "reprovados"} · ${pending} ${pending === 1 ? "pendente" : "pendentes"}`;
+  qs("testsReportDetails").innerHTML = reviewSummaryHtml();
   syncCompletedTestsToRecord(pending);
+  renderTestConfirmation();
+  renderTestRail();
+  renderActionBar();
   renderOperationalDashboard();
+}
+
+function renderActionBar() {
+  const review = state.activeTest === "review";
+  for (const id of ["skipActiveTest", "failAndNextTest", "passAndNextTest"]) qs(id).classList.toggle("hidden", review);
+  qs("confirmHardwareTests").classList.toggle("hidden", !review || validTestSignature());
+  if (!review) qs("finishTests").classList.add("hidden");
+  qs("testActionBar").classList.toggle("review", review);
+  const status = qs("activeTestBlockers");
+  if (review) { status.textContent = qs("testConfirmationStatus").textContent; status.dataset.state = "review"; return; }
+  const index = testSequence.indexOf(state.activeTest);
+  if (index < 0) return;
+  const last = index === testSequence.length - 1;
+  const blockers = testBlockers(state.activeTest);
+  status.textContent = blockersText(state.activeTest);
+  status.dataset.state = blockers.length ? "open" : "done";
+  qs("passAndNextTest").textContent = blockers.some((blocker) => blocker.reason === "pending")
+    ? (last ? "Aprovar tudo e revisar →" : "Aprovar tudo e próximo →") : last ? "Revisar →" : "Próximo →";
+}
+
+function showChecklistBlockers(focusId, message) {
+  qs("hardwareChecklistItems").classList.add("show-blockers");
+  renderHardwareChecklist();
+  if (message) qs("activeTestBlockers").textContent = message;
+  const bar = qs("testActionBar");
+  bar.classList.remove("attention");
+  void bar.offsetWidth;
+  bar.classList.add("attention");
+  const target = (focusId && (qs(`note-${focusId}`) || document.querySelector(`#hardwareChecklistItems [data-check-result="${focusId}"]`)))
+    || document.querySelector("#hardwareChecklistItems [data-check-result]");
+  target?.scrollIntoView({ block: "nearest" });
+  target?.focus({ preventScroll: true });
+}
+
+function openReview() {
+  closeScreenTest();
+  stopActiveTest();
+  state.activeTest = "review";
+  qs("testPanel").classList.add("hidden");
+  qs("testReviewPanel").classList.remove("hidden");
+  qs("testWorkspace").scrollTop = 0;
+  renderTests();
+}
+
+async function openFirstOpenStep() {
+  const next = testSequence.find((test) => ["pending", "incomplete"].includes(testRailState(test)));
+  if (next) await openTest(next);
+  else openReview();
 }
 
 function stopActiveTest() {
@@ -1006,38 +1400,47 @@ function stopActiveTest() {
   state.audioContext = null;
   if (state.toneContext) state.toneContext.close().catch(() => {});
   state.toneContext = null;
+  state.networkPollCleanup?.();
+  state.networkPollCleanup = null;
   if (state.keyboardHandler) {
     document.removeEventListener("keydown", state.keyboardHandler, true);
     document.removeEventListener("keyup", state.keyboardHandler, true);
   }
   state.keyboardHandler = null;
-  state.keyboardPressed = null;
+  state.keyboardCaptureCleanup?.();
+  state.keyboardCaptureCleanup = null;
   state.keyboardLayoutE14 = null;
   state.mouseButtonCleanup?.();
   state.mouseButtonCleanup = null;
   state.activeTest = "";
-  qs("testWorkspace").classList.add("hidden");
   qs("activeTestBody").innerHTML = "";
 }
 
 function renderActiveTestNavigation() {
   const currentIndex = testSequence.indexOf(state.activeTest);
-  if (currentIndex < 0) return;
-  const nextTest = testSequence[currentIndex + 1];
-  const isLastTest = !nextTest;
-  qs("activeTestStep").textContent = `TESTE ${currentIndex + 1} DE ${testSequence.length}`;
-  qs("activeTestNextLabel").textContent = isLastTest
-    ? "Último teste da sequência"
-    : `Próximo: ${testLabels[nextTest]}`;
-  qs("passAndNextTest").textContent = isLastTest ? "Aprovado e finalizar" : "Aprovado e próximo";
-  qs("failAndNextTest").textContent = isLastTest ? "Reprovado e finalizar" : "Reprovado e próximo";
+  if (currentIndex >= 0) {
+    qs("activeTestStep").textContent = `${currentIndex + 1} de ${testSequence.length}`;
+  }
+  renderTestRail();
+  renderActionBar();
+  qs("testRail").querySelector('[aria-current="step"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
 }
 
 async function completeActiveTest(result) {
   const currentTest = state.activeTest;
   const currentIndex = testSequence.indexOf(currentTest);
   if (currentIndex < 0) return;
-  if (result === "passed" || result === "failed") state.tests[currentTest] = result;
+  if (result !== "pending") {
+    if (result === "passed" && approvePendingItems(currentTest)) invalidateTestConfirmation();
+    const hasFailure = state.testChecklist.some((item) => item.testId === currentTest && item.result === "failed");
+    const blockers = testBlockers(currentTest);
+    if (blockers.length || (result === "failed" && !hasFailure)) {
+      closeScreenTest();
+      renderTests();
+      showChecklistBlockers(blockers[0]?.id, result === "failed" && !hasFailure ? "Marque Reprovado no item que falhou e descreva o defeito." : "");
+      return;
+    }
+  }
   const nextTest = testSequence[currentIndex + 1];
   renderTests();
   closeScreenTest();
@@ -1045,14 +1448,12 @@ async function completeActiveTest(result) {
     await openTest(nextTest);
     return;
   }
-  stopActiveTest();
-  const footer = document.querySelector(".tests-footer");
-  if (footer) footer.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  openReview();
 }
 
 function requestUserMedia(constraints) {
   if (!window.isSecureContext) {
-    return Promise.reject(new Error("A câmera e o microfone exigem que o InfoNotebook seja aberto pela interface local segura."));
+    return Promise.reject(new Error("Abra o InfoNotebook pelo inicializador deste computador para usar a câmera e o microfone."));
   }
   if (navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === "function") {
     return navigator.mediaDevices.getUserMedia(constraints);
@@ -1061,7 +1462,7 @@ function requestUserMedia(constraints) {
   if (legacy) {
     return new Promise((resolve, reject) => legacy.call(navigator, constraints, resolve, reject));
   }
-  return Promise.reject(new Error("Camera e microfone precisam ser abertos pelo teste local seguro do InfoNotebook."));
+  return Promise.reject(new Error("Abra o InfoNotebook pelo inicializador para usar a câmera e o microfone."));
 }
 
 async function requestUserMediaWithStartupRetry(constraints) {
@@ -1090,7 +1491,7 @@ async function openTestsPage() {
   // which is a trusted local origin and can request the media permissions.
   if (nativeRuntime.sessionId) {
     try {
-      setStatus("Abrindo os testes pela interface local segura...", "ok");
+      setStatus("Abrindo os testes neste computador...", "ok");
       await api("/api/native-command", { command: "open-tests" });
       return;
     } catch (err) {
@@ -1106,7 +1507,7 @@ function testError(message) {
   const permissionHelp = isWindowsPreview
     ? "Confira em Configurações do Windows > Privacidade e segurança > Câmera ou Microfone."
     : "Confira a permissão em Ajustes do Sistema > Privacidade e Segurança.";
-  qs("activeTestBody").innerHTML = `<div class="test-permission-error"><strong>Não foi possível iniciar.</strong><span>${escapeHtml(message)}</span><small>${escapeHtml(permissionHelp)}</small></div>`;
+  qs("activeTestBody").innerHTML = `<div class="test-permission-error"><strong>Não foi possível iniciar o teste.</strong><span>${escapeHtml(message)}</span><small>${escapeHtml(permissionHelp)}</small></div>`;
 }
 
 function confirmCameraTestPermission() {
@@ -1142,16 +1543,20 @@ function confirmCameraTestPermission() {
 async function openCameraTest() {
   qs("activeTestBody").innerHTML = '<div class="camera-permission-idle"><span aria-hidden="true">●</span><div><strong>Aguardando sua autorização</strong><small>A câmera ainda não foi ativada.</small></div></div>';
   const approved = await confirmCameraTestPermission();
+  if (state.activeTest !== "camera") return;
   if (!approved) {
-    qs("activeTestBody").innerHTML = '<div class="camera-permission-idle"><span aria-hidden="true">○</span><div><strong>Câmera não iniciada</strong><small>Clique novamente em Abrir teste quando desejar continuar.</small></div></div>';
+    qs("activeTestBody").innerHTML = '<div class="camera-permission-idle"><span aria-hidden="true">○</span><div><strong>Câmera não ativada</strong><small>Ative a câmera para conferir a imagem, ou marque Não testado no checklist.</small></div><button type="button" class="secondary" id="retryCameraPermission">Ativar câmera</button></div>';
+    qs("retryCameraPermission").addEventListener("click", openCameraTest);
     return;
   }
   qs("activeTestBody").innerHTML = '<div class="camera-stage"><video id="cameraPreview" autoplay muted playsinline></video><span>Imagem ao vivo</span></div>';
   try {
-    state.mediaStream = await requestUserMediaWithStartupRetry({ video: true, audio: false });
+    const stream = await requestUserMediaWithStartupRetry({ video: true, audio: false });
+    if (state.activeTest !== "camera" || !qs("cameraPreview")) { stream.getTracks().forEach((track) => track.stop()); return; }
+    state.mediaStream = stream;
     qs("cameraPreview").srcObject = state.mediaStream;
   } catch (err) {
-    testError(err.message || "Camera indisponivel.");
+    if (state.activeTest === "camera") testError(err.message || "Não foi possível ativar a câmera. Confira a permissão e tente novamente.");
   }
 }
 
@@ -1223,6 +1628,8 @@ function normalizeKeyboardEvent(event) {
     if (sidedKeys[event.code]) return sidedKeys[event.code];
   }
   if (/^F(?:[1-9]|1[0-2])$/.test(event.code)) return event.code;
+  if (/^Key[A-Z]$/.test(event.code)) return event.code.slice(3);
+  if (/^Digit[0-9]$/.test(event.code)) return event.code.slice(5);
   if (physicalKeys[event.code]) return physicalKeys[event.code];
   const aliases = { " ": "SPACE", ESCAPE: "ESC", CMD: "META", OS: "META", DEAD: "'" };
   return aliases[String(event.key || "").toUpperCase()] || String(event.key || "").toUpperCase();
@@ -1231,8 +1638,15 @@ function normalizeKeyboardEvent(event) {
 function listenForMouseButtons(target, onButton, allowedButtons = [0, 1, 2]) {
   let lastButton = -1;
   let lastTime = 0;
+  let lastPhysicalRight = 0;
+  let middleHeld = false;
   const record = (event, button) => {
+    if (event.target?.closest?.("button")) return;
     if (!allowedButtons.includes(button)) return;
+    if (event.type === "click" && event.detail === 0) return;
+    if (event.type === "contextmenu" && Date.now() - lastPhysicalRight > 500) return;
+    if ((event.type === "pointerdown" || event.type === "mousedown") && button === 1) middleHeld = true;
+    if ((event.type === "pointerdown" || event.type === "mousedown") && button === 2) lastPhysicalRight = Date.now();
     event.preventDefault();
     const now = Date.now();
     if (lastButton === button && now - lastTime < 250) return;
@@ -1242,6 +1656,8 @@ function listenForMouseButtons(target, onButton, allowedButtons = [0, 1, 2]) {
   };
   const handlers = [
     ["pointerdown", (event) => record(event, event.button)],
+    ["pointermove", (event) => { if ((event.buttons & 4) && !middleHeld) { middleHeld = true; record(event, 1); } else if (!(event.buttons & 4)) middleHeld = false; }],
+    ["pointerup", (event) => { if (event.button === 1 || !(event.buttons & 4)) middleHeld = false; }],
     ["mousedown", (event) => record(event, event.button)],
     ["click", (event) => record(event, 0)],
     ["auxclick", (event) => record(event, event.button)],
@@ -1252,16 +1668,21 @@ function listenForMouseButtons(target, onButton, allowedButtons = [0, 1, 2]) {
 }
 
 function openKeyboardTest() {
-  const isE14Keyboard = isWindowsPreview && /\bE14\b/i.test(state.info?.modelo || "");
+  const profile = state.keyboardProfile || (state.keyboardFnOverride != null ? (state.keyboardFnOverride ? "fn" : "compact") : /\bE14\b/i.test(state.info?.modelo || "") ? "fn" : "compact");
+  const isE14Keyboard = isWindowsPreview && (profile === "fn" || (profile === "custom" && state.keyboardFnOverride === true));
+  const hasNumpad = isWindowsPreview && (profile === "numpad" || (profile === "custom" && state.keyboardCustomNumpad));
+  const layoutKey = `${profile}:${isE14Keyboard}:${hasNumpad}`;
   state.mouseButtonCleanup?.();
   state.mouseButtonCleanup = null;
+  state.keyboardCaptureCleanup?.();
+  state.keyboardCaptureCleanup = null;
   if (state.keyboardHandler) {
     document.removeEventListener("keydown", state.keyboardHandler, true);
     document.removeEventListener("keyup", state.keyboardHandler, true);
   }
   const pressed = state.keyboardPressed || new Set();
   state.keyboardPressed = pressed;
-  state.keyboardLayoutE14 = isE14Keyboard;
+  state.keyboardLayoutE14 = layoutKey;
   const macKeyboardRows = [
     ["ESC","F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12"],
     ["BACKQUOTE","1","2","3","4","5","6","7","8","9","0","-","=","BACKSPACE"],
@@ -1287,7 +1708,7 @@ function openKeyboardTest() {
   let keyboardMarkup = "";
   let totalKeys = 0;
   if (isWindowsPreview) {
-    const functionKeys = ["ESC","F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12","PRINTSCREEN","SCROLLLOCK","PAUSE"];
+    const functionKeys = ["ESC","F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12","PRINTSCREEN", ...(hasNumpad ? ["SCROLLLOCK","PAUSE"] : [])];
     const mainRows = [
       ["BACKQUOTE","1","2","3","4","5","6","7","8","9","0","-","=","BACKSPACE"],
       ["TAB","Q","W","E","R","T","Y","U","I","O","P","[","]","BACKSLASH"],
@@ -1295,28 +1716,29 @@ function openKeyboardTest() {
       ["SHIFTLEFT","Z","X","C","V","B","N","M",",",".","/","SHIFTRIGHT"],
       isE14Keyboard
         ? ["FN","CONTROLLEFT","WINDOWSLEFT","ALTLEFT","SPACE","ALTRIGHT","PRINTSCREEN","INTLRO","CONTROLRIGHT"]
-        : ["CONTROLLEFT","WINDOWSLEFT","ALTLEFT","SPACE","ALTRIGHT","MENU","CONTROLRIGHT"],
+        : hasNumpad
+          ? ["CONTROLLEFT","WINDOWSLEFT","ALTLEFT","SPACE","ALTRIGHT","MENU","CONTROLRIGHT"]
+          : ["CONTROLLEFT","WINDOWSLEFT","ALTLEFT","SPACE","ALTRIGHT","PRINTSCREEN","INTLRO"],
     ];
-    const navigationKeys = ["INSERT","HOME","PAGEUP","DELETE","END","PAGEDOWN","ARROWUP","ARROWLEFT","ARROWDOWN","ARROWRIGHT"];
-    const numpadKeys = ["NUMLOCK","NUMDIVIDE","NUMMULTIPLY","NUMSUBTRACT","NUM7","NUM8","NUM9","NUMADD","NUM4","NUM5","NUM6","NUM1","NUM2","NUM3","NUMENTER","NUM0","NUMDECIMAL"];
+    const navigationKeys = ["INSERT","PAGEUP","DELETE","PAGEDOWN","ARROWUP","ARROWLEFT","ARROWDOWN","ARROWRIGHT", ...(hasNumpad ? ["HOME","END"] : [])];
+    const numpadKeys = hasNumpad ? ["NUMLOCK","NUMDIVIDE","NUMMULTIPLY","NUMSUBTRACT","NUM7","NUM8","NUM9","NUMADD","NUM4","NUM5","NUM6","NUM1","NUM2","NUM3","NUMENTER","NUM0","NUMDECIMAL"] : [];
     totalKeys = new Set([...functionKeys, ...mainRows.flat(), ...navigationKeys, ...numpadKeys]).size;
     keyboardMarkup = `
-      <div class="keyboard-map windows-keyboard" aria-label="Mapa completo do teclado Windows">
+      <div class="keyboard-map windows-keyboard${hasNumpad ? "" : " without-numpad"}" aria-label="Mapa das teclas presentes no equipamento">
         <div class="windows-function-row">
           <div class="windows-function-main">${functionKeys.slice(0, 13).map((key) => renderKey(key, ["F1","F5","F9"].includes(key) ? `function-${key.toLowerCase()}` : "")).join("")}</div>
-          <div class="windows-function-end">${(isE14Keyboard ? [null,"SCROLLLOCK","PAUSE","HOME","END"] : ["PRINTSCREEN","SCROLLLOCK","PAUSE","HOME","END"]).map((key) => key ? renderKey(key) : '<span class="keyboard-empty" aria-hidden="true"></span>').join("")}</div>
+          <div class="windows-function-end">${(hasNumpad ? (isE14Keyboard ? [null,"SCROLLLOCK","PAUSE","HOME","END"] : ["PRINTSCREEN","SCROLLLOCK","PAUSE","HOME","END"]) : [null]).map((key) => key ? renderKey(key) : '<span class="keyboard-empty" aria-hidden="true"></span>').join("")}</div>
         </div>
         <div class="windows-keyboard-grid">
           <div class="windows-main-keys">${mainRows.map((row) => `<div class="keyboard-row">${row.map((key) => renderKey(key)).join("")}</div>`).join("")}</div>
           <div class="windows-navigation-keys">
             ${["PAGEUP","PAGEDOWN","INSERT","DELETE","ARROWUP"].map((key) => renderKey(key)).join("")}
           </div>
-          <div class="windows-numpad">
+          <div class="windows-numpad${hasNumpad ? "" : " hidden"}">
             ${numpadKeys.map((key) => renderKey(key, key === "NUMADD" ? "numpad-add" : key === "NUMENTER" ? "numpad-enter" : key === "NUM0" ? "numpad-zero" : "")).join("")}
           </div>
         </div>
         <div class="windows-keyboard-footer">
-          <div class="windows-touchpad" aria-label="Teste dos botões do mouse ou touchpad" title="Clique aqui com os botões esquerdo, meio e direito"><span data-mouse-button="0" title="Clique esquerdo"></span><span data-mouse-button="1" title="Clique do meio"></span><span data-mouse-button="2" title="Clique direito"></span></div>
           <div class="windows-arrow-keys">${["ARROWLEFT","ARROWDOWN","ARROWRIGHT"].map((key) => renderKey(key)).join("")}</div>
         </div>
       </div>`;
@@ -1325,16 +1747,47 @@ function openKeyboardTest() {
     keyboardMarkup = `<div class="keyboard-map mac-keyboard">${macKeyboardRows.map((row) => `<div class="keyboard-row">${row.map((key) => renderKey(key)).join("")}</div>`).join("")}</div>`;
   }
   const keyboardHelp = isWindowsPreview
-    ? "Pressione cada tecla. No E14, confirme Fn após usá-la com uma tecla de função. Se Prt Sc abrir a captura, confirme-a manualmente. Nos três campos abaixo, clique com esquerdo, meio e direito."
+    ? "Escolha o layout da máquina e teste as teclas presentes. Fn deve ser confirmada após uso com uma tecla de função; Prt Sc pode exigir confirmação manual. Observe a sequência para identificar repetições."
     : "Pressione cada tecla. Se F11 controlar a tela do Mac, clique em F11 no mapa para confirmar.";
-  qs("activeTestBody").innerHTML = `<div class="keyboard-progress"><div><span>Teclas reconhecidas</span><small>${keyboardHelp}</small>${isWindowsPreview ? '<small id="keyboardLastEvent" aria-live="polite">Última tecla: aguardando</small><small id="keyboardLastPointer" aria-live="polite">Último clique: aguardando</small>' : ""}</div><strong id="keyboardCount">0 / ${totalKeys}</strong></div>${keyboardMarkup}`;
+  const layoutControls = isWindowsPreview ? `<label class="keyboard-layout-choice">Layout do teclado<select id="keyboardProfile"><option value="compact" ${profile === "compact" ? "selected" : ""}>Compacto</option><option value="fn" ${profile === "fn" ? "selected" : ""}>Com Fn (E14)</option><option value="numpad" ${profile === "numpad" ? "selected" : ""}>Com teclado numérico</option><option value="custom" ${profile === "custom" ? "selected" : ""}>Personalizado</option></select></label>${profile === "custom" ? `<label class="keyboard-layout-choice"><input type="checkbox" id="keyboardHasFn" ${isE14Keyboard ? "checked" : ""}> Fn à esquerda</label><label class="keyboard-layout-choice"><input type="checkbox" id="keyboardHasNumpad" ${hasNumpad ? "checked" : ""}> Teclado numérico</label>` : ""}` : "";
+  qs("activeTestBody").innerHTML = `<div class="keyboard-progress"><div><span>Teclas reconhecidas</span><small>${keyboardHelp}</small>${isWindowsPreview ? '<small id="keyboardLastEvent" aria-live="polite">Última tecla: aguardando</small>' : ""}</div><strong id="keyboardCount">0 / ${totalKeys}</strong></div><div class="keyboard-recent"><span>Últimas teclas recebidas</span><div id="keyboardRecentKeys" class="keyboard-recent-line" aria-label="Sequência das últimas teclas recebidas"></div></div><div class="keyboard-capture-controls"><button type="button" class="secondary" id="focusKeyboardCapture">Focar área do teclado</button><p id="keyboardCaptureStatus" role="status"></p>${layoutControls}</div>${keyboardMarkup}`;
+  if (isWindowsPreview) {
+    const layoutDescription = (selected, fn, numpad) => ({ compact: "Compacto", fn: "Com Fn", numpad: "Com teclado numérico", custom: `Personalizado (Fn: ${fn ? "sim" : "não"}; numérico: ${numpad ? "sim" : "não"})` })[selected];
+    const updateLayout = (nextProfile, fn, numpad) => {
+      state.keyboardProfile = nextProfile;
+      state.keyboardFnOverride = fn;
+      state.keyboardCustomNumpad = numpad;
+      const item = state.testChecklist?.find((entry) => entry.id === "keyboard.keys");
+      if (item) { item.result = "pending"; item.layout = layoutDescription(nextProfile, fn, numpad); delete item.keyboardKeys; }
+      invalidateTestConfirmation();
+      openKeyboardTest();
+      renderHardwareChecklist();
+      renderTests();
+    };
+    qs("keyboardProfile").addEventListener("change", (event) => updateLayout(event.target.value, false, state.keyboardCustomNumpad));
+    if (profile === "custom") {
+      qs("keyboardHasFn").addEventListener("change", (event) => updateLayout("custom", event.target.checked, state.keyboardCustomNumpad));
+      qs("keyboardHasNumpad").addEventListener("change", (event) => updateLayout("custom", state.keyboardFnOverride, event.target.checked));
+    }
+    const item = state.testChecklist?.find((entry) => entry.id === "keyboard.keys");
+    if (item && !item.layout) item.layout = layoutDescription(profile, isE14Keyboard, hasNumpad);
+  }
+  const recentEvents = state.keyboardRecentEvents || [];
+  state.keyboardRecentEvents = recentEvents;
+  const renderRecentKeys = () => {
+    const line = qs("keyboardRecentKeys");
+    if (!line) return;
+    line.innerHTML = recentEvents.length ? recentEvents.map((entry) => `<span class="keyboard-recent-key${entry.rapid ? " rapid" : ""}${entry.held ? " held" : ""}" title="${entry.held ? "Repetição ao segurar a tecla" : entry.rapid ? "Dois acionamentos rápidos" : "Tecla recebida"}">${escapeHtml(entry.label)}${entry.held ? " ↻" : ""}</span>`).join("") : '<small>Pressione uma tecla para iniciar a sequência.</small>';
+    line.scrollLeft = line.scrollWidth;
+  };
+  renderRecentKeys();
   const visibleKeys = new Set([...qs("activeTestBody").querySelectorAll("kbd[data-key]")].map((item) => item.dataset.key));
   for (const key of pressed) if (!visibleKeys.has(key)) pressed.delete(key);
   qs("activeTestBody").querySelectorAll("kbd[data-key]").forEach((item) => {
     if (pressed.has(item.dataset.key)) item.classList.add("pressed");
   });
   qs("keyboardCount").textContent = `${pressed.size} / ${totalKeys}`;
-  const confirmKey = (key) => {
+  const confirmKey = (key, manual = false) => {
     const elements = [...qs("activeTestBody").querySelectorAll("kbd[data-key]")]
       .filter((item) => item.dataset.key === key);
     if (!elements.length) return;
@@ -1343,20 +1796,38 @@ function openKeyboardTest() {
       element.classList.add("pressed");
     });
     pressed.add(key);
+    const checklistItem = state.testChecklist?.find((entry) => entry.id === "keyboard.keys");
+    if (checklistItem) {
+      const manualKeys = new Set(checklistItem.keyboardKeys?.manual || []);
+      if (manual) manualKeys.add(key);
+      checklistItem.keyboardKeys = { recognized: pressed.size, present: totalKeys, manual: [...manualKeys] };
+      invalidateTestConfirmation();
+    }
     qs("keyboardCount").textContent = `${pressed.size} / ${totalKeys}`;
   };
   state.keyboardHandler = (event) => {
-    if (event.target?.dataset?.manualConfirm === "true" && event.key === "Enter") {
+    if (event.target?.closest?.('input, textarea, select, [contenteditable="true"], [contenteditable=""]')) return;
+    const control = event.target?.closest?.('button, a, [role="button"]');
+    const manualConfirm = event.target?.dataset?.manualConfirm === "true";
+    if (control && (event.key === "Tab" || (!manualConfirm && ["Enter", " "].includes(event.key)))) return;
+    if (manualConfirm && ["Enter", " "].includes(event.key)) {
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
-      confirmKey(event.target.dataset.key);
+      if (event.type === "keydown" && !event.repeat) confirmKey(event.target.dataset.key, true);
       return;
     }
     event.preventDefault();
     event.stopPropagation();
     event.stopImmediatePropagation();
     const key = normalizeKeyboardEvent(event);
+    if (event.type === "keydown") {
+      const now = Date.now();
+      const previous = recentEvents[recentEvents.length - 1];
+      recentEvents.push({ label: visibleKeys.has(key) ? key : String(event.key || event.code || "?"), code: event.code, at: now, rapid: !event.repeat && previous?.code === event.code && now - previous.at <= 150, held: Boolean(event.repeat) });
+      if (recentEvents.length > 24) recentEvents.shift();
+      renderRecentKeys();
+    }
     if (isWindowsPreview && event.type === "keydown") {
       const lastEvent = qs("keyboardLastEvent");
       if (lastEvent) lastEvent.textContent = `Última tecla: código físico ${event.code || "indisponível"} · caractere ${event.key || "indisponível"} · mapa ${visibleKeys.has(key) ? key : "não identificado"}`;
@@ -1370,32 +1841,59 @@ function openKeyboardTest() {
         qs("keyboardCount").textContent = `${pressed.size} / ${totalKeys}`;
       } else {
         confirmKey(key);
+        if (key === "ESC") qs("focusKeyboardCapture")?.focus({ preventScroll: true });
       }
     }
   };
   qs("activeTestBody").querySelectorAll('kbd[data-manual-confirm="true"]').forEach((item) => {
-    item.addEventListener("click", () => confirmKey(item.dataset.key));
+    item.addEventListener("click", () => confirmKey(item.dataset.key, true));
   });
-  const keyboardMap = qs("activeTestBody").querySelector(".windows-keyboard");
-  const touchpadButtons = keyboardMap?.querySelector(".windows-touchpad");
-  if (keyboardMap && touchpadButtons) {
-    state.mouseButtonCleanup = listenForMouseButtons(keyboardMap, (button, event) => {
-      if (event.target?.closest?.("kbd")) return;
-      touchpadButtons.querySelector(`[data-mouse-button="${button}"]`)?.classList.add("pressed");
-      qs("keyboardLastPointer").textContent = `Último clique: ${["esquerdo", "meio", "direito"][button]} detectado`;
-    });
-  }
+  const keyboardMap = qs("activeTestBody").querySelector(".keyboard-map");
+  keyboardMap.tabIndex = 0;
+  keyboardMap.setAttribute("aria-label", isWindowsPreview ? "Área de teste do teclado Windows" : "Área de teste do teclado Mac");
+  keyboardMap.setAttribute("aria-describedby", "keyboardCaptureStatus");
+  const captureStatus = () => {
+    const message = !document.hasFocus() ? "Janela sem foco. Volte ao aplicativo para continuar; o progresso foi mantido."
+      : document.activeElement?.closest?.('input, textarea, select, [contenteditable="true"], [contenteditable=""]') ? "Captura pausada durante a edição. Clique em Focar área do teclado para continuar o teste."
+      : "Captura ativa. Clique no mapa para testar Tab, Enter e espaço. Pressione Esc para voltar aos controles. Fn e atalhos do sistema podem exigir conferência manual.";
+    qs("keyboardCaptureStatus").textContent = message;
+  };
+  const focusMap = () => { keyboardMap.focus({ preventScroll: true }); captureStatus(); };
+  const clearActiveKeys = () => {
+    keyboardMap.querySelectorAll(".active-key").forEach((key) => { key.classList.remove("active-key"); key.classList.toggle("pressed", pressed.has(key.dataset.key)); });
+    captureStatus();
+  };
+  const onFocusIn = () => {
+    if (document.activeElement?.closest?.('input, textarea, select, [contenteditable="true"], [contenteditable=""]')) clearActiveKeys();
+    else captureStatus();
+  };
+  const onVisibilityChange = () => { if (document.hidden) clearActiveKeys(); else captureStatus(); };
+  const onMapClick = (event) => { if (!event.target.closest('[data-manual-confirm="true"]')) focusMap(); };
+  qs("focusKeyboardCapture").addEventListener("click", focusMap);
+  keyboardMap.addEventListener("click", onMapClick);
+  window.addEventListener("blur", clearActiveKeys);
+  window.addEventListener("focus", captureStatus);
+  document.addEventListener("focusin", onFocusIn);
+  document.addEventListener("visibilitychange", onVisibilityChange);
+  state.keyboardCaptureCleanup = () => {
+    window.removeEventListener("blur", clearActiveKeys);
+    window.removeEventListener("focus", captureStatus);
+    document.removeEventListener("focusin", onFocusIn);
+    document.removeEventListener("visibilitychange", onVisibilityChange);
+  };
   document.addEventListener("keydown", state.keyboardHandler, true);
   document.addEventListener("keyup", state.keyboardHandler, true);
+  focusMap();
 }
 
 function refreshKeyboardLayoutForDevice() {
   if (!isWindowsPreview || state.activeTest !== "keyboard" || !state.keyboardHandler) return;
-  const isE14Keyboard = /\bE14\b/i.test(state.info?.modelo || "");
-  if (isE14Keyboard !== state.keyboardLayoutE14) openKeyboardTest();
+  const profile = state.keyboardProfile || (state.keyboardFnOverride != null ? (state.keyboardFnOverride ? "fn" : "compact") : /\bE14\b/i.test(state.info?.modelo || "") ? "fn" : "compact");
+  const layoutKey = `${profile}:${profile === "fn" || (profile === "custom" && state.keyboardFnOverride === true)}:${profile === "numpad" || (profile === "custom" && state.keyboardCustomNumpad)}`;
+  if (layoutKey !== state.keyboardLayoutE14) openKeyboardTest();
 }
 
-async function playTestTone(volume = 50) {
+async function playTestTone(volume = 50, pan = 0) {
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   if (!AudioContextClass) throw new Error("Áudio não suportado neste navegador.");
   const context = new AudioContextClass();
@@ -1410,7 +1908,9 @@ async function playTestTone(volume = 50) {
   gain.gain.linearRampToValueAtTime(peak, context.currentTime + 0.05);
   gain.gain.setValueAtTime(peak, context.currentTime + 0.95);
   gain.gain.linearRampToValueAtTime(0, context.currentTime + 1.25);
-  oscillator.connect(gain).connect(context.destination);
+  const panner = context.createStereoPanner();
+  panner.pan.value = pan;
+  oscillator.connect(gain).connect(panner).connect(context.destination);
   await context.resume();
   oscillator.start();
   oscillator.stop(context.currentTime + 1.3);
@@ -1438,18 +1938,20 @@ async function startMicrophoneMeter() {
       state.audioFrame = requestAnimationFrame(tick);
     };
     tick();
-    qs("micStatus").textContent = "Microfone ativo — fale para movimentar o medidor.";
+    qs("micStatus").textContent = "Microfone ativo. Fale e observe o nível no medidor.";
   } catch (err) {
-    testError(err.message || "Microfone indisponivel.");
+    testError(err.message || "Não foi possível ativar o microfone. Confira a permissão e tente novamente.");
   }
 }
 
 function openAudioTest() {
+  const speaker = state.testChecklist.find((item) => item.id === "audio.speakers");
+  const played = new Set(speaker?.evidence?.source === "auto" ? ["esquerdo", "direito"] : []);
   qs("activeTestBody").innerHTML = `<div class="audio-stage">
     <section class="audio-card" aria-label="Teste dos alto-falantes">
       <div class="audio-card-head"><div><span>01 · SAÍDA DE SOM</span><h4>Ouça o tom de teste</h4><p>Ajuste o volume deste teste e confirme os alto-falantes.</p></div><div class="audio-wave" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div></div>
       <div class="audio-volume-control"><button type="button" id="volumeDown" aria-label="Diminuir volume do teste">−</button><input id="testVolume" type="range" min="0" max="100" step="10" value="50" aria-label="Volume do tom de teste"><button type="button" id="volumeUp" aria-label="Aumentar volume do teste">+</button><output id="testVolumeValue" for="testVolume">50%</output></div>
-      <button type="button" class="audio-play" id="playTone"><span aria-hidden="true">▶</span><span>Reproduzir tom</span></button>
+      <button type="button" class="audio-play" id="playToneLeft">Reproduzir lado esquerdo</button><button type="button" class="audio-play" id="playToneRight">Reproduzir lado direito</button><p id="toneStatus" aria-live="polite">Reproduza o tom nos dois lados e confirme o que ouviu no checklist.</p>
     </section>
     <section class="audio-card audio-mic-card" aria-label="Teste do microfone"><div class="audio-card-head"><div><span>02 · ENTRADA DE VOZ</span><h4>Confira o microfone</h4><p>Fale normalmente e observe o nível abaixo.</p></div><button type="button" id="startMic">Ativar microfone</button></div><div class="mic-meter" role="meter" aria-label="Nível do microfone"><span id="micMeterFill"></span></div><p id="micStatus" aria-live="polite">O medidor será ativado com sua permissão.</p></section>
   </div>`;
@@ -1462,14 +1964,26 @@ function openAudioTest() {
   qs("volumeUp").addEventListener("click", () => { volume.value = Math.min(100, Number(volume.value) + 10); updateVolume(); });
   volume.addEventListener("input", updateVolume);
   updateVolume();
-  qs("playTone").addEventListener("click", async () => {
-    const button = qs("playTone");
+  const playSide = async (side, pan) => {
+    const button = qs(pan < 0 ? "playToneLeft" : "playToneRight");
     button.disabled = true;
     button.closest(".audio-card").classList.add("playing");
-    try { await playTestTone(Number(volume.value)); }
+    try {
+      if (Number(volume.value) <= 0) throw new Error("Aumente o volume do teste antes de reproduzir o tom.");
+      await playTestTone(Number(volume.value), pan);
+      played.add(side);
+      qs("toneStatus").textContent = played.size === 2 ? "Tom reproduzido nos lados esquerdo e direito. Confirme o que ouviu no checklist." : `Tom reproduzido no lado ${side}. Teste o outro lado.`;
+      if (played.size === 2 && speaker) {
+        speaker.evidence = { source: "auto", detail: "Tom reproduzido nos lados esquerdo e direito", at: new Date().toISOString() };
+        invalidateTestConfirmation();
+        renderHardwareChecklist();
+      }
+    }
     catch (err) { testError(err.message || "Não foi possível reproduzir o som."); }
     finally { button.disabled = false; button.closest(".audio-card")?.classList.remove("playing"); }
-  });
+  };
+  qs("playToneLeft").addEventListener("click", () => playSide("esquerdo", -1));
+  qs("playToneRight").addEventListener("click", () => playSide("direito", 1));
   qs("startMic").addEventListener("click", startMicrophoneMeter);
 }
 
@@ -1487,13 +2001,21 @@ function openScreenTest() {
 }
 
 function openTrackpadTest() {
-  qs("activeTestBody").innerHTML = '<div class="trackpad-stats" aria-label="Leituras do mouse"><span><small>Movimento</small><strong id="trackMoves">0</strong></span><span><small>Esquerdo</small><strong id="trackLeft">0</strong></span><span><small>Direito</small><strong id="trackRight">0</strong></span><span><small>Rolagem</small><strong id="trackScrolls">0</strong></span></div><div class="trackpad-zone" id="trackpadZone"><i id="trackPointer"></i><div class="trackpad-guide" aria-hidden="true"><span>ÁREA DE TESTE</span><strong>Explore toda a superfície</strong><small>Mova o ponteiro, clique e role dentro desta área.</small><div class="trackpad-gesture-guide"><span>1 · Clique esquerdo</span><span>2 · Clique direito</span><span>3 · Rolagem</span></div></div></div><p id="trackLastPointer" aria-live="polite">Último clique: aguardando. Clique em qualquer ponto da área deste teste.</p>';
+  qs("activeTestBody").innerHTML = '<div class="trackpad-stats" aria-label="Leituras do mouse"><span><small>Movimento</small><strong id="trackMoves">0</strong></span><span><small>Clique esquerdo</small><strong id="trackLeft">0</strong></span><span><small>Clique do meio (opcional)</small><strong id="trackMiddle">0</strong></span><span><small>Clique direito</small><strong id="trackRight">0</strong></span><span><small>Rolagem</small><strong id="trackScrolls">0</strong></span></div><div class="trackpad-zone" id="trackpadZone"><i id="trackPointer"></i><div class="trackpad-guide" aria-hidden="true"><span>ÁREA DE TESTE</span><strong>Explore toda a superfície</strong><small>Mova o ponteiro e teste os cliques esquerdo e direito.</small><div class="trackpad-gesture-guide"><span>1 · Clique esquerdo</span><span>2 · Clique direito</span><span>3 · Rolagem</span></div></div></div><p id="trackLastPointer" aria-live="polite">Último clique: aguardando. Clique em qualquer ponto da área deste teste.</p><button type="button" class="secondary" id="confirmMiddleManually">Botão central funcionou, mas não foi detectado</button>';
   const zone = qs("trackpadZone");
   const pointer = qs("trackPointer");
   let moves = 0;
   let scrolls = 0;
   const clicks = [0, 0, 0];
-  const clickIds = ["trackLeft", null, "trackRight"];
+  const clickIds = ["trackLeft", "trackMiddle", "trackRight"];
+  const recordEvidence = (id, detail) => {
+    const item = state.testChecklist.find((entry) => entry.id === id);
+    if (!item || item.evidence?.source === "auto") return;
+    invalidateTestConfirmation();
+    item.evidence = { source: "auto", detail, at: new Date().toISOString() };
+    renderHardwareChecklist();
+    renderTests();
+  };
   const updateMetric = (id, value) => {
     const metric = qs(id);
     metric.textContent = value;
@@ -1504,37 +2026,184 @@ function openTrackpadTest() {
     pointer.style.left = `${event.clientX - bounds.left}px`;
     pointer.style.top = `${event.clientY - bounds.top}px`;
     updateMetric("trackMoves", ++moves);
+    if (moves >= 20) recordEvidence("trackpad.movement", `${moves} movimentos detectados na área de teste`);
   });
   state.mouseButtonCleanup = listenForMouseButtons(qs("activeTestBody"), (button) => {
+    if (button === 1) { const item = state.testChecklist?.find((entry) => entry.id === "trackpad.buttons"); if (item?.middleManual) { delete item.middleManual; invalidateTestConfirmation(); } }
     updateMetric(clickIds[button], ++clicks[button]);
-    qs("trackLastPointer").textContent = `Último clique: ${["esquerdo", "", "direito"][button]} detectado`;
-  }, [0, 2]);
+    qs("trackLastPointer").textContent = `Último clique: ${["esquerdo", "do meio", "direito"][button]} detectado`;
+    if (clicks[0] && clicks[2]) recordEvidence("trackpad.buttons", `Cliques detectados: esquerdo ${clicks[0]}, direito ${clicks[2]}`);
+  });
+  qs("confirmMiddleManually").addEventListener("click", () => {
+    qs("trackMiddle").textContent = "Manual";
+    qs("trackLastPointer").textContent = "Botão central confirmado pelo técnico; o sistema não recebeu um evento de clique.";
+    const item = state.testChecklist?.find((entry) => entry.id === "trackpad.buttons");
+    if (item) { item.middleManual = true; invalidateTestConfirmation(); }
+  });
   zone.addEventListener("wheel", (event) => { event.preventDefault(); updateMetric("trackScrolls", ++scrolls); }, { passive: false });
+}
+
+function openUsbTest() {
+  qs("activeTestBody").innerHTML = '<div class="connector-test-guide usb-detection-guide"><h4>Verificação por porta USB</h4><p>Retire o dispositivo de teste, faça a leitura inicial e conecte-o em uma porta por vez. A detecção registra reconhecimento; confirme o funcionamento no checklist.</p><label for="usbPortTarget">Porta física testada</label><select id="usbPortTarget"></select><div class="usb-detection-actions"><button type="button" id="usbBaseline">1. Ler sem o dispositivo</button><button type="button" id="usbDetect">2. Detectar após conectar</button></div><p id="usbDetectionStatus" role="status">Aguardando leitura inicial. Se o Windows não informar a localização, use a verificação manual justificada no checklist.</p></div>';
+  const checklist = state.testChecklist;
+  const serial = String(state.info.serial || "").trim();
+  const panel = qs("activeTestBody");
+  const status = qs("usbDetectionStatus");
+  const target = qs("usbPortTarget");
+  const current = () => state.activeTest === "usb" && state.testChecklist === checklist && state.testSessionSerial === serial && String(state.info.serial || "").trim() === serial && panel.contains(status);
+  const refreshPorts = () => {
+    const selected = target.value;
+    target.innerHTML = checklist.filter((item) => item.id.startsWith("usb.port-")).map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.label)}</option>`).join("");
+    if (selected && [...target.options].some((option) => option.value === selected)) target.value = selected;
+  };
+  refreshPorts();
+  let baseline = null;
+  qs("usbBaseline").addEventListener("click", async () => {
+    try {
+      const reading = await api("/api/usb-devices");
+      if (!current()) return;
+      baseline = Array.isArray(reading.devices) ? reading.devices : [];
+      status.textContent = `Leitura inicial concluída (${baseline.length} dispositivos USB). Conecte o dispositivo na porta selecionada e detecte novamente.`;
+    } catch (error) { if (current()) status.textContent = `Leitura indisponível: ${error.message}. Use verificação manual justificada.`; }
+  });
+  qs("usbDetect").addEventListener("click", async () => {
+    if (!baseline) { status.textContent = "Faça primeiro a leitura sem o dispositivo de teste."; return; }
+    const targetId = target.value;
+    try {
+      const reading = await api("/api/usb-devices");
+      if (!current()) return;
+      const before = new Set(baseline.map((device) => `${device.instanceId}|${device.portKey}`));
+      const added = (reading.devices || []).filter((device) => device.instanceId && device.portKey && !before.has(`${device.instanceId}|${device.portKey}`));
+      const newLocations = new Set(added.map((device) => device.portKey));
+      if (newLocations.size !== 1) { status.textContent = newLocations.size ? "Dispositivos apareceram em mais de uma localização. Desconecte os outros e repita a leitura inicial." : "Nenhum dispositivo novo com localização física foi detectado. Repita ou registre a verificação manual justificada."; return; }
+      const device = added[0];
+      if (checklist.some((item) => item.id !== targetId && item.evidence?.source === "auto" && item.evidence.portKey === device.portKey)) { status.textContent = "Esta localização já foi usada em outra porta. Escolha a porta correta ou repita a leitura."; return; }
+      const item = checklist.find((entry) => entry.id === targetId);
+      if (!item) { refreshPorts(); status.textContent = "Selecione uma porta da lista e tente novamente."; return; }
+      invalidateTestConfirmation();
+      item.evidence = { source: "auto", detail: `${device.name || "Dispositivo USB"} reconhecido na localização ${device.portKey}`, portKey: device.portKey, at: new Date().toISOString() };
+      status.textContent = `${item.label}: dispositivo reconhecido. Confirme no checklist se a porta funcionou.`;
+      renderHardwareChecklist(); renderTests();
+    } catch (error) { if (current()) status.textContent = `Detecção indisponível: ${error.message}. Use verificação manual justificada.`; }
+  });
+  return refreshPorts;
 }
 
 async function openTest(test) {
   stopActiveTest();
   state.activeTest = test;
-  qs("testWorkspace").classList.remove("hidden");
+  qs("testReviewPanel").classList.add("hidden");
+  qs("testPanel").classList.remove("hidden");
+  qs("testWorkspace").scrollTop = 0;
+  qs("hardwareChecklistItems").classList.remove("show-blockers");
   qs("activeTestTitle").textContent = testLabels[test];
   const helps = {
-    camera: "Autorize a camera e confira nitidez, enquadramento e estabilidade.",
+    camera: "Autorize a câmera e confira a nitidez, o enquadramento e a estabilidade da imagem.",
     keyboard: isWindowsPreview
       ? "Pressione todas as teclas. Em alguns notebooks, use Fn + F1, Fn + F2 etc. para testar as teclas de função."
       : "Pressione as teclas. No Mac, use Fn + F1, Fn + F2 etc. para testar as teclas de função.",
-    audio: "Confirme a saida dos alto-falantes e observe o nivel do microfone.",
-    screen: "Alterne entre as cinco cores e procure pixels presos, manchas ou vazamento de luz.",
+    audio: "Ouça o tom de teste e confira se os alto-falantes funcionam sem distorção.",
+    screen: "Alterne entre branco e preto. Confira se há pontos luminosos, linhas ou manchas na tela.",
     trackpad: isWindowsPreview
       ? "Mova o mouse ou use toda a superfície do touchpad, clique e faça rolagem."
       : "Use toda a superfície do trackpad, clique e faça rolagem.",
   };
-  qs("activeTestHelp").textContent = helps[test];
+  qs("activeTestHelp").textContent = helps[test] || "Conecte o acessório, faça a verificação física e registre cada resultado no checklist.";
+  renderHardwareChecklist();
   renderActiveTestNavigation();
   if (test === "camera") await openCameraTest();
   if (test === "keyboard") openKeyboardTest();
   if (test === "audio") openAudioTest();
-  if (test === "screen") openScreenTest();
+  if (test === "screen") {
+    qs("activeTestBody").innerHTML = '<button type="button" class="secondary" id="reopenScreenTest">Reabrir teste de tela (branco/preto)</button>';
+    qs("reopenScreenTest").addEventListener("click", openScreenTest);
+    openScreenTest();
+  }
   if (test === "trackpad") openTrackpadTest();
+  if (test === "usb") openUsbTest();
+  if (["usb", "charger", "network", "hdmi"].includes(test)) qs("activeTestHelp").textContent = { usb: "Use um dispositivo USB conhecido em cada porta. Confira reconhecimento e uso; diferencie USB-A, USB-C e posição. Use +1 USB ou +1 USB-C para incluir as demais portas.", charger: "Teste cada conector de carregamento disponível no equipamento. Confira se todos funcionam e se os encaixes estão firmes, sem folga.", network: "Teste Ethernet e Wi-Fi separadamente. Anote conexão, acesso à rede local e à internet. A falta de internet deve ser diferenciada de defeito no adaptador.", hdmi: "Conecte um cabo HDMI e confira se a saída funciona e mantém a imagem estável. Anote eventual falha ou adaptador utilizado." }[test];
+  if (test === "charger") {
+    let disconnected = false;
+    qs("activeTestBody").insertAdjacentHTML("beforeend", '<div class="connector-test-guide"><p>Desconecte o carregador e registre a leitura. Depois conecte-o e registre novamente.</p><button type="button" id="powerDisconnected">1. Ler desconectado</button> <button type="button" id="powerConnected">2. Ler conectado</button><p id="powerStatus" role="status">Aguardando a primeira leitura.</p></div>');
+    const checklist = state.testChecklist;
+    const serial = String(state.info.serial || "").trim();
+    const panel = qs("activeTestBody");
+    const status = qs("powerStatus");
+    const isCurrent = () => state.activeTest === "charger" && state.testChecklist === checklist && state.testSessionSerial === serial && String(state.info.serial || "").trim() === serial && panel.contains(status);
+    qs("powerDisconnected").addEventListener("click", async () => {
+      try { const reading = await api("/api/power-status"); if (!isCurrent()) return; disconnected = reading.lineStatus === "Offline"; status.textContent = disconnected ? "Alimentação por bateria detectada. Reconecte o carregador." : "O Windows não detectou alimentação por bateria. Confira se o carregador foi desconectado."; }
+      catch (error) { if (isCurrent()) status.textContent = `${error.message} Você pode registrar a verificação manual com justificativa.`; }
+    });
+    qs("powerConnected").addEventListener("click", async () => {
+      if (!disconnected) { if (isCurrent()) status.textContent = "Registre primeiro a alimentação por bateria."; return; }
+      try {
+        const reading = await api("/api/power-status");
+        if (!isCurrent()) return;
+        if (reading.lineStatus !== "Online") { status.textContent = "O Windows ainda não detecta alimentação pela tomada."; return; }
+        const item = state.testChecklist.find((entry) => entry.id === "charger.connectors");
+        if (item) { invalidateTestConfirmation(); item.evidence = { source: "auto", detail: "Alimentação mudou de bateria para tomada após reconectar o carregador", at: new Date().toISOString() }; renderHardwareChecklist(); renderTests(); }
+        status.textContent = "Conexão do carregador detectada. Confirme o funcionamento e a firmeza no checklist.";
+      } catch (error) { if (isCurrent()) status.textContent = `${error.message} Você pode registrar a verificação manual com justificativa.`; }
+    });
+  }
+  if (test === "network") {
+    const checklist = state.testChecklist;
+    const serial = String(state.info.serial || "").trim();
+    const panel = qs("activeTestBody");
+    let stage = 0;
+    let pollTimer = null;
+    const kinds = ["ethernet", "wifi"];
+    const names = ["Ethernet", "Wi-Fi"];
+    const currentItem = () => checklist.find((entry) => entry.id === `network.${kinds[stage]}`);
+    const isCurrent = (element) => state.activeTest === "network" && state.testChecklist === checklist && state.testSessionSerial === serial && String(state.info.serial || "").trim() === serial && panel.contains(element);
+    const drawStage = (message = "") => {
+      if (pollTimer) clearInterval(pollTimer);
+      const kind = kinds[stage], name = names[stage], item = currentItem();
+      const detected = item?.evidence?.source === "auto" && item.evidence.detail.startsWith(`Interface ${kind} conectada:`);
+      panel.innerHTML = `<section class="network-step" aria-labelledby="networkStepTitle"><div class="network-step-head"><span>ETAPA ${stage + 1} DE 2</span><h4 id="networkStepTitle">${stage === 0 ? "Conecte o cabo de rede" : "Conecte-se ao Wi-Fi"}</h4><p>${stage === 0 ? "Conecte um cabo Ethernet e aguarde o Windows obter um endereço de rede." : "Selecione a rede sem fio no Windows e aguarde a conexão."}</p></div><div class="network-step-reading"><button type="button" id="detectNetwork">Verificar ${name}</button><p id="networkStatus" role="status">${escapeHtml(message || (detected ? `Conexão verificada: ${item.evidence.detail}. Confirme se conseguiu acessar a rede.` : "Aguardando leitura automática."))}</p></div><div class="network-step-decisions"><p>A conexão foi testada e funcionou?</p><button type="button" data-network-result="passed" ${detected || item?.evidence?.source === "manual" ? "" : "disabled"}>Aprovado</button><button type="button" data-network-result="failed">Reprovado</button><button type="button" data-network-result="not_applicable">Esta máquina não possui ${name}</button></div><div class="network-step-nav">${stage ? '<button type="button" data-network-stage="previous" class="secondary">← Ethernet</button>' : ""}<button type="button" data-network-stage="next" class="secondary" ${stage === 0 ? "" : "disabled"}>${stage === 0 ? "Próxima etapa: Wi-Fi →" : "Etapas de rede concluídas"}</button></div></section>`;
+      const status = qs("networkStatus");
+      qs("detectNetwork").addEventListener("click", async () => {
+        const button = qs("detectNetwork"); button.disabled = true;
+        try {
+          const reading = await api("/api/network-status");
+          if (!isCurrent(status) || kinds[stage] !== kind) return;
+          const connected = (reading.interfaces || []).find((entry) => entry.kind === kind && entry.connected);
+          if (!connected) {
+            if (item?.evidence?.source === "auto") { invalidateTestConfirmation(); delete item.evidence; if (item.result === "passed") item.result = "pending"; renderHardwareChecklist(); renderTests(); }
+            drawStage(`${name} sem conexão detectada. Confira o cabo, a rede e o adaptador; você pode registrar uma verificação manual no checklist.`);
+            return;
+          }
+          invalidateTestConfirmation();
+          item.evidence = { source: "auto", detail: `Interface ${kind} conectada: ${connected.name}; IP ${connected.ip}`, at: new Date().toISOString() };
+          renderHardwareChecklist(); renderTests();
+          drawStage(`${name} verificado: ${connected.name} · IP ${connected.ip}. Confirme o acesso observado antes de aprovar.`);
+        } catch (error) { if (isCurrent(status)) { status.textContent = `${error.message} Se funciona, registre a verificação manual com justificativa no checklist.`; button.disabled = false; } }
+      });
+      panel.querySelectorAll("[data-network-result]").forEach((button) => button.addEventListener("click", () => {
+        const result = button.dataset.networkResult;
+        if (result === "passed" && !item.evidence) return;
+        if (result === "failed") {
+          const reason = window.prompt(`Descreva o defeito observado em ${name}:`, item.notes || "");
+          if (!reason?.trim()) { status.textContent = "Descreva o defeito para registrar a reprovação."; return; }
+          item.notes = reason.trim();
+        }
+        if (result === "not_applicable") { item.notes = `Equipamento sem interface ${name}, conforme verificação do técnico.`; delete item.evidence; }
+        invalidateTestConfirmation(); item.result = result;
+        renderHardwareChecklist(); renderTests();
+        drawStage(`${name}: ${window.CAIJ_TEST_CHECKLIST.resultLabels[result]}. ${stage === 0 ? "Avance para o Wi-Fi." : "Revise o checklist antes de confirmar o relatório."}`);
+      }));
+      panel.querySelectorAll("[data-network-stage]").forEach((button) => button.addEventListener("click", () => { stage = button.dataset.networkStage === "next" ? 1 : 0; drawStage(); }));
+      if (typeof setInterval === "function" && item?.result === "pending" && !item.evidence) {
+        pollTimer = setInterval(() => {
+          if (!isCurrent(status)) { clearInterval(pollTimer); return; }
+          const button = qs("detectNetwork");
+          if (!button.disabled) button.click();
+        }, 2500);
+      }
+    };
+    state.networkPollCleanup = () => { if (pollTimer) clearInterval(pollTimer); };
+    drawStage();
+  }
   qs("testWorkspace").scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
@@ -1547,8 +2216,8 @@ function closeScreenTest() {
 async function copyTestsReport() {
   const report = testsReport();
   await copyText(report);
-  qs("testsActionStatus").textContent = "Resumo completo copiado.";
-  setStatus("Resumo dos testes copiado.", "ok");
+  qs("testsActionStatus").textContent = "Relatório completo copiado.";
+  setStatus("Relatório dos testes copiado.", "ok");
 }
 
 async function copyText(text) {
@@ -1652,12 +2321,26 @@ function labelContextFromCreate(body) {
 
 function applyGradeFromReference(reference) {
   const normalized = String(reference || "").toUpperCase();
-  state.grade = normalized.includes("TRIAGEM") ? "T"
-    : normalized === "RMA" ? "RMA"
-      : (normalized.match(/GRADE\s+([ABC])/)?.[1] || "A");
+  state.grade = window.CAIJ_OBSERVATION.gradeCode(normalized) || "A";
   document.querySelectorAll(".grade").forEach((button) => {
     button.classList.toggle("active", button.dataset.grade === state.grade);
   });
+  updateGradeObservationRequirements();
+}
+
+function updateGradeObservationRequirements() {
+  const createD = window.CAIJ_OBSERVATION.gradeCode(qs("createReference").value) === "D";
+  qs("createObservation").required = createD;
+  qs("createObservationRequirement").textContent = createD
+    ? "Obrigatório para Grade D: descreva o detalhe da máquina."
+    : "Opcional";
+  qs("obs").required = window.CAIJ_OBSERVATION.requiresDetail(state.grade);
+  qs("labelObservationRequirement").textContent = state.grade === "D"
+    ? "Obrigatório para Grade D: descreva o detalhe da máquina."
+    : "Detalhes e avarias obrigatórios para grades B, C e D";
+  if (qs("printBtn").getAttribute("aria-busy") !== "true") {
+    qs("printBtn").disabled = state.deviceReading !== "ready" || Boolean(window.CAIJ_OBSERVATION.validateGradeDetail(state.grade, qs("obs").value));
+  }
 }
 
 function productCode(product) {
@@ -1678,11 +2361,14 @@ function sortProductsWithTFirst(products) {
 function updateCreateOsState() {
   const other = qs("otherTechnician").value.trim();
   const technician = state.createOs.technician === "Outro" ? other : state.createOs.technician;
-  const ready = state.deviceReading === 'ready' && Boolean(technician && state.createOs.product && qs("createSerial").value.trim());
+  qs("createConfirmSummary").textContent = state.createOs.product ? `${productLabel(state.createOs.product)} · Serial: ${qs("createSerial").value.trim() || "não informada"} · ${qs("createReference").value}` : "Selecione o produto e confira a serial antes de cadastrar.";
+  const gradeError = window.CAIJ_OBSERVATION.validateGradeDetail(qs("createReference").value, qs("createObservation").value);
+  const ready = state.deviceReading === 'ready' && Boolean(technician && state.createOs.product && qs("createSerial").value.trim()) && !gradeError;
   qs("submitCreateOs").disabled = !ready;
-  qs("createOsStatus").textContent = state.createOs.product
+  qs("createOsStatus").textContent = gradeError || (state.createOs.product
     ? `Selecionado: ${productLabel(state.createOs.product)}`
-    : "Selecione o técnico e o produto.";
+    : "Selecione o técnico e o produto.");
+  updateGradeObservationRequirements();
 }
 
 function openCreateOs() {
@@ -1805,6 +2491,36 @@ async function copyDeviceInfo() {
 }
 
 function wireControls() {
+  qs("openAestheticTriage").addEventListener("click", () => {
+    if (!state.aestheticRecord) state.aestheticRecord = window.CAIJ_AESTHETIC_TRIAGE.createRecord();
+    stopActiveTest();
+    qs("testPanel").classList.add("hidden");
+    qs("testReviewPanel").classList.add("hidden");
+    qs("aestheticTriage").classList.remove("hidden");
+    window.CAIJ_AESTHETIC_TRIAGE.mount(qs("aestheticTriage"), state.aestheticRecord, (record) => {
+      state.aestheticRecord = record;
+      try { localStorage.setItem(`caij:aesthetic:${state.testSessionSerial}`, JSON.stringify(record)); } catch (_) {}
+      invalidateTestConfirmation();
+      renderTests();
+    });
+  });
+  qs("aestheticTriage").addEventListener("click", (event) => {
+    if (!event.target.closest("#closeAestheticTriage")) return;
+    qs("aestheticTriage").classList.add("hidden");
+    qs("testPanel").classList.remove("hidden");
+    renderTests();
+  });
+  qs("printHistorySearch").addEventListener("input", renderPrintHistory);
+  qs("printHistoryList").addEventListener("click", (event) => { const button = event.target.closest("[data-review-print]"); if (button) openHistoryReview(Number(button.dataset.reviewPrint)); });
+  qs("closeHistoryReview").addEventListener("click", () => qs("historyReviewDialog").close());
+  qs("historyGoLabels").addEventListener("click", () => { qs("historyReviewDialog").close(); showAppView("labels"); setStatus("Confira a etiqueta atual com os dados do histórico antes de imprimir.", "warn"); });
+  qs("deviceReview").addEventListener("click", (event) => { const button = event.target.closest("[data-edit-device]"); if (button) editDeviceField(button.dataset.editDevice); });
+  qs("deviceRead").addEventListener("click", (event) => { const button = event.target.closest("[data-edit-device]"); if (button) editDeviceField(button.dataset.editDevice === "ram" ? "ramDetalhes" : button.dataset.editDevice); });
+  qs("openAppInfo").addEventListener("click", () => { renderAppInfo(); qs("appInfoDialog").showModal(); });
+  qs("closeAppInfo").addEventListener("click", () => qs("appInfoDialog").close());
+  qs("checkAppUpdates").addEventListener("click", checkAppUpdates);
+  qs("labelPreviewZoom").addEventListener("change", (event) => { document.querySelector(".thermal-label-stage").style.setProperty("--label-preview-width", `${Number(event.target.value) * 100}%`); });
+
   document.addEventListener("click", async (event) => {
     const retry = event.target.closest("[data-serial-os-retry]");
     if (retry) return void lookupExistingOs(true);
@@ -1823,6 +2539,7 @@ function wireControls() {
       state.grade = button.dataset.grade;
       document.querySelectorAll(".grade").forEach((b) => b.classList.toggle("active", b === button));
       renderPreview();
+      updateGradeObservationRequirements();
       renderOperationalDashboard();
     });
   });
@@ -1838,34 +2555,110 @@ function wireControls() {
 
   qs("openTests").addEventListener("click", openTestsPage);
   qs("closeTests").addEventListener("click", closeTestsPanel);
-  qs("closeActiveTest").addEventListener("click", stopActiveTest);
   qs("skipActiveTest").addEventListener("click", () => completeActiveTest("pending"));
   qs("failAndNextTest").addEventListener("click", () => completeActiveTest("failed"));
   qs("passAndNextTest").addEventListener("click", () => completeActiveTest("passed"));
-  qs("testList").addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-action]");
-    if (!button) return;
-    const test = button.closest(".test-row").dataset.test;
-    const action = button.dataset.action;
-    if (action === "open") return openTest(test);
-    state.tests[test] = action === "pass" ? "passed" : action === "fail" ? "failed" : "pending";
-    renderTests();
+  qs("testRail").addEventListener("click", (event) => {
+    const test = event.target.closest("button[data-rail-test]")?.dataset.railTest;
+    if (!test || test === state.activeTest) return;
+    if (test === "review") return openReview();
+    if (!testSequence.includes(test)) return;
+    closeScreenTest();
+    openTest(test);
+  });
+  qs("testsReportDetails").addEventListener("click", (event) => {
+    const test = event.target.closest("button[data-review-test]")?.dataset.reviewTest;
+    if (testSequence.includes(test)) openTest(test);
   });
   qs("resetTests").addEventListener("click", () => {
+    if (!window.confirm("Limpar todos os resultados deste equipamento?")) return;
+    state.keyboardPressed = null;
+    state.keyboardRecentEvents = [];
+    invalidateTestConfirmation();
+    state.testChecklist.forEach((item) => { item.result = "pending"; item.notes = ""; delete item.evidence; delete item.middleManual; });
+    qs("testGeneralNotes").value = "";
     Object.keys(state.tests).forEach((key) => state.tests[key] = "pending");
     stopActiveTest();
     renderTests();
+    void openFirstOpenStep();
   });
   qs("copyTestsReport").addEventListener("click", copyTestsReport);
   qs("finishTests").addEventListener("click", async () => {
-    if (Object.values(state.tests).some((value) => value === "pending")) return;
+    if (!validTestSignature()) return;
     if (testsOnlyMode) {
-      const report = testsLabelSummary();
+      const report = testsReport();
       await copyText(report);
       try { localStorage.setItem("caij:mac-tests-observation", report); } catch (_) {}
     }
     closeTestsPanel();
-    setStatus("Testes finalizados e observações atualizadas.", "ok");
+    setStatus("Relatório confirmado e disponível para o cadastro do rastreador.", "ok");
+  });
+  qs("hardwareChecklistItems").addEventListener("click", (event) => {
+    const removeId = event.target.closest("[data-usb-remove]")?.dataset.usbRemove;
+    if (removeId) {
+      invalidateTestConfirmation();
+      state.testChecklist = state.testChecklist.filter((entry) => entry.id !== removeId);
+      state.testChecklist.find((entry) => entry.id === "usb.inventory").result = "pending";
+      renderHardwareChecklist(); renderTests(); renderActiveTestNavigation();
+      if (state.activeTest === "usb") openUsbTest();
+      return;
+    }
+    const noteId = event.target.closest("[data-note-open]")?.dataset.noteOpen;
+    if (noteId) { state.checklistNotesOpen.add(noteId); renderHardwareChecklist(); qs(`note-${noteId}`)?.focus(); return; }
+    const manualId = event.target.closest("[data-evidence-manual]")?.dataset.evidenceManual;
+    if (manualId) {
+      const item = state.testChecklist.find((entry) => entry.id === manualId);
+      if (!item) return;
+      const reason = window.prompt(`Por que a detecção automática de ${item.label} falhou? Descreva como verificou o funcionamento.`)?.trim();
+      if (!reason) { qs("hardwareChecklistStatus").textContent = "A confirmação manual exige justificativa."; return; }
+      invalidateTestConfirmation(); item.evidence = { source: "manual", detail: reason, at: new Date().toISOString() }; renderHardwareChecklist(); renderTests();
+      return;
+    }
+    const target = event.target.closest("button[data-check-result]");
+    if (!target) return;
+    const id = target.dataset.checkResult;
+    const item = state.testChecklist.find((entry) => entry.id === id);
+    let result = target.dataset.checkValue;
+    if (!item || !window.CAIJ_TEST_CHECKLIST.results.includes(result)) return;
+    if (item.result === result) result = "pending";
+    if (requiresItemEvidence(id) && result === "passed" && !item.evidence) { qs("hardwareChecklistStatus").textContent = "Registre a detecção ou confirme manualmente com justificativa antes de aprovar."; return; }
+    invalidateTestConfirmation();
+    item.result = result;
+    renderTests();
+    renderHardwareChecklist();
+    [...qs("hardwareChecklistItems").querySelectorAll("button[data-check-result]")].find((button) => button.dataset.checkResult === id && button.dataset.checkValue === target.dataset.checkValue)?.focus({ preventScroll: true });
+    renderActiveTestNavigation();
+  });
+  qs("hardwareChecklistItems").addEventListener("input", (event) => {
+    const item = state.testChecklist.find((entry) => entry.id === (event.target.dataset.checkNote || event.target.dataset.checkLabel));
+    if (!item) return;
+    if (event.target.dataset.checkLabel) item.label = event.target.value;
+    else item.notes = event.target.value;
+    invalidateTestConfirmation();
+    renderTests();
+  });
+  qs("usbPortTools").addEventListener("click", (event) => {
+    const kind = event.target.closest("button[data-usb-add]")?.dataset.usbAdd;
+    if (!kind) return;
+    const ports = state.testChecklist.filter((item) => item.id.startsWith("usb.port-"));
+    if (ports.length >= 32) { qs("hardwareChecklistStatus").textContent = "Limite de 32 portas USB."; return; }
+    invalidateTestConfirmation();
+    const pattern = new RegExp(`^${kind.replace("-", "\\-")} (\\d+)$`);
+    const nextNumber = Math.max(0, ...ports.map((item) => Number(pattern.exec(item.label)?.[1] || 0))) + 1;
+    const nextId = Math.max(0, ...ports.map((item) => Number(item.id.slice("usb.port-".length)) || 0)) + 1;
+    state.testChecklist.push({ id: `usb.port-${nextId}`, testId: "usb", label: `${kind} ${nextNumber}`, result: "pending", notes: "" });
+    state.testChecklist.find((item) => item.id === "usb.inventory").result = "pending";
+    renderHardwareChecklist(); renderTests(); renderActiveTestNavigation();
+    if (state.activeTest === "usb") openUsbTest();
+  });
+  for (const id of ["testTechnician", "testGeneralNotes", "testEquipmentSerial"]) qs(id).addEventListener("input", () => { invalidateTestConfirmation(); renderTests(); });
+  for (const id of ["testAttestation", "testConfirmationWord"]) qs(id).addEventListener("input", renderTestConfirmation);
+  qs("confirmHardwareTests").addEventListener("click", confirmHardwareTests);
+  qs("testConfirmationHistory").addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-copy-test-record]");
+    if (!button) return;
+    const record = readTestHistory()[Number(button.dataset.copyTestRecord)];
+    if (record) { await copyText(window.CAIJ_TEST_CHECKLIST.buildRecordReport(record)); qs("testConfirmationStatus").textContent = "Relatório histórico copiado. A conferência atual não foi alterada."; }
   });
   qs("screenColorButtons").addEventListener("click", (event) => {
     const button = event.target.closest("button[data-color]");
@@ -1953,7 +2746,7 @@ function wireControls() {
   });
   qs("reviewSerialDivergence").addEventListener("click", async () => {
     showAppView("labels");
-    setStatus("Confira a serial do equipamento e a serial vinculada ao rastreador.", "busy");
+    setStatus("Confira a serial do equipamento e a serial vinculada ao rastreador.");
     await refreshOsVerification();
   });
   qs("workflowRead").parentElement.addEventListener("click", (event) => {
@@ -1961,10 +2754,7 @@ function wireControls() {
     if (target) runWorkflowAction(target.dataset.workflowAction);
   });
   qs("nextActionButton").addEventListener("click", (event) => runWorkflowAction(event.currentTarget.dataset.workflowAction));
-  qs("reprintLast").addEventListener("click", () => {
-    showAppView("labels");
-    setStatus("Confira a etiqueta antes de reimprimir.", "busy");
-  });
+  qs("reprintLast").addEventListener("click", () => openHistoryReview(0));
   qs("includeOs").addEventListener("change", updatePrintOsAvailability);
   qs("labelEquipmentType").addEventListener("change", async (event) => {
     const equipmentType = event.currentTarget.value;
@@ -2009,7 +2799,8 @@ function wireControls() {
     }
   });
   qs("obs").addEventListener("input", () => { renderObservationPreviews(); renderOperationalDashboard(); });
-  qs("createObservation").addEventListener("input", renderObservationPreviews);
+  qs("createObservation").addEventListener("input", () => { renderObservationPreviews(); updateCreateOsState(); });
+  qs("createReference").addEventListener("change", () => { updateCreateOsState(); renderObservationPreviews(); });
   ["labelServiceChecklist", "createServiceChecklist"].forEach((id) => {
     qs(id).addEventListener("change", () => { renderObservationPreviews(); renderOperationalDashboard(); });
   });
@@ -2034,13 +2825,19 @@ function wireControls() {
   });
 
   qs("searchProducts").addEventListener("click", async () => {
+    const button = qs("searchProducts");
+    if (button.disabled) return;
     const term = qs("productSearch").value.trim();
     qs("productResults").innerHTML = "<p>Buscando produtos...</p>";
+    setLoadingContent(qs("productResults").firstElementChild, "Buscando produtos...", true);
+    setButtonBusy(button, true, "Buscando...");
     try {
       const data = await api("/api/products", { term });
       renderProductResults(data.produtos || []);
     } catch (err) {
       qs("productResults").innerHTML = `<p>${escapeHtml(err.message)}</p>`;
+    } finally {
+      setButtonBusy(button, false);
     }
   });
   qs("productSearch").addEventListener("keydown", (event) => {
@@ -2088,6 +2885,8 @@ function wireControls() {
 
   qs("createOsForm").addEventListener("submit", async (event) => {
     event.preventDefault();
+    const gradeError = window.CAIJ_OBSERVATION.validateGradeDetail(qs("createReference").value, qs("createObservation").value);
+    if (gradeError) { qs("createOsStatus").textContent = gradeError; qs("createObservation").focus(); return; }
     if (["searching", "choose"].includes(state.serialOsLookup.status) && state.serialOsLookup.serial === currentLookupSerial()) {
       return setStatus("Confira primeiro o rastreador encontrado para esta serial.", "warn");
     }
@@ -2101,6 +2900,7 @@ function wireControls() {
       serial: qs("createSerial").value.trim(),
       referencia: qs("createReference").value,
       observacao: observationText("createServiceChecklist", "createObservation"),
+      detalheGrade: qs("createObservation").value.trim(),
       produto: state.createOs.product,
       servicos: [],
       info: state.info,
@@ -2112,7 +2912,7 @@ function wireControls() {
     body.equipmentType = labelContext.equipmentType;
     if (body.equipmentType !== "Celular") body.device3u = null;
     setButtonBusy(createButton, true, "Criando rastreador...");
-    qs("createOsStatus").textContent = "Criando rastreador no Altertag...";
+    setLoadingContent(qs("createOsStatus"), "Criando rastreador no AlterTag...", true);
     try {
       const data = await api("/api/create-os", body);
       state.osCreatedInSession = true;
@@ -2128,13 +2928,15 @@ function wireControls() {
       renderOperationalDashboard();
       closeCreateOs();
       showOsAlert(data, true);
-      setStatus(`${data.osCriada} criada com sucesso.`, "ok");
+      setStatus(`Rastreador ${data.osCriada} criado com sucesso.`, "ok");
       void refreshOsVerification();
     } catch (err) {
       updateCreateOsState();
       qs("createOsStatus").textContent = err.message;
     } finally {
       setButtonBusy(createButton, false);
+      qs("createOsStatus").classList.remove("has-bars-spinner");
+      qs("createOsStatus").removeAttribute("aria-busy");
     }
   });
 
@@ -2148,6 +2950,7 @@ function wireControls() {
     const body = {
       grade: gradeValue(),
       obs: observationText("labelServiceChecklist", "obs", true),
+      detalheGrade: qs("obs").value.trim(),
       includeOs: qs("includeOs").checked,
       osNumero: printedOs,
       info: state.info,
@@ -2158,9 +2961,9 @@ function wireControls() {
     setStatus("Conferindo dados da etiqueta...", "busy");
     try {
       if (!window.CAIJ_OBSERVATION.fitsLabel(body.obs)) {
-        throw new Error("A observação excede as 3 linhas da etiqueta. Resuma o texto antes de imprimir.");
+        throw new Error("A observação ultrapassa o espaço da etiqueta: até 180 caracteres e 3 linhas. Resuma o texto antes de imprimir.");
       }
-      if (["B", "C"].includes(state.grade) && !qs("obs").value.trim()) {
+      if (window.CAIJ_OBSERVATION.requiresDetail(state.grade) && !qs("obs").value.trim()) {
         throw new Error(`Descreva os detalhes ou avarias da Grade ${state.grade} em Observações.`);
       }
       if (body.includeOs) {
@@ -2176,16 +2979,17 @@ function wireControls() {
       const data = await api("/api/print", body);
       saveLastPrint({
         os: body.includeOs ? `C${String(printedOs).padStart(6, "0")}` : "Sem rastreador",
-        modelo: state.info.modelo || defaultModelName,
-        serial: state.info.serial || "",
-        grade: gradeValue(),
-        tipo: state.equipmentType,
+        modelo: body.info.modelo || defaultModelName,
+        serial: body.info.serial || "",
+        grade: body.grade,
+        snapshot: { info: { ...body.info }, obs: body.obs, detalheGrade: body.detalheGrade, includeOs: body.includeOs, osNumero: printedOs },
+        tipo: body.equipmentType,
         horario: new Date().toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }),
       });
       if (data.state) applyState(data.state);
       setPrintProgress("Servidor confirmou o envio à fila. Confira se a etiqueta saiu fisicamente.", "ok");
       showAppView("home");
-      setStatus(data.syncWarning ? "Etiqueta enviada à fila. A sincronização secundária precisa ser conferida." : "Etiqueta enviada à fila de impressão. Confira a saída física.", data.syncWarning ? "warn" : "ok");
+      setStatus(data.syncWarning ? "Etiqueta enviada à fila de impressão. Confira a sincronização dos dados do rastreador." : "Etiqueta enviada à fila de impressão. Confira a saída física.", data.syncWarning ? "warn" : "ok");
     } catch (err) {
       setPrintProgress(`Impressão não confirmada: ${err.message}`, "warn");
       setStatus(err.message, "warn");
@@ -2223,9 +3027,31 @@ function wireControls() {
   });
 }
 
+function initializeAnimatedGradient() {
+  const headers = [...document.querySelectorAll(".hero-strip, .page-intro")];
+  headers.forEach((header) => {
+    if (header.querySelector(":scope > .animated-gradient")) return;
+    header.classList.add("has-animated-gradient");
+    const gradient = document.createElement("div");
+    gradient.className = "animated-gradient";
+    gradient.setAttribute("aria-hidden", "true");
+    header.appendChild(gradient);
+  });
+  window.CaijAnimatedGradient?.mount(headers);
+}
+
+function initializeTestChecklistUi() {
+  qs("testEquipmentSerial").readOnly = !testsOnlyMode;
+  try { localStorage.removeItem("caij:mac-tests-observation"); } catch (_) {}
+}
+
+initializeTestChecklistUi();
+window.addEventListener("resize", syncTestsViewport);
 applyPlatformUi();
+initializeAnimatedGradient();
 wireControls();
 renderTests();
+void loadTestRecords();
 updatePrintOsAvailability();
 updateSessionClock();
 setInterval(updateSessionClock, 30000);

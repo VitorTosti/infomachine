@@ -20,8 +20,8 @@ async function main() {
   };
   vm.runInNewContext(source, { window, fetch, AbortController, setTimeout, clearTimeout, console });
   const api = window.CAIJ_PORTABLE_API;
-  await assert.rejects(api('/api/print', {}), /nao esta pronta/);
-  await assert.rejects(api('/api/create-os', {}), /nao esta pronta/);
+  await assert.rejects(api('/api/print', {}), /A leitura do equipamento ainda não foi concluída/);
+  await assert.rejects(api('/api/create-os', {}), /A leitura do equipamento ainda não foi concluída/);
   await assert.rejects(api('/api/info', { info: { serial: 'OLD' } }), /Aguarde/);
   assert.equal(writes, 0, 'No remote mutations while the device is loading');
   assert.equal((await api('/api/state')).deviceReading, 'pending');
