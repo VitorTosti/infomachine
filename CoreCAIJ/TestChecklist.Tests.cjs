@@ -1,6 +1,8 @@
 const assert = require('node:assert/strict');
 const checklist = require('./mac-ui/test-checklist.js');
 const clone = data => JSON.parse(JSON.stringify(data));
+const fs = require('node:fs');
+const vm = require('node:vm');
 const complete = () => ({ technician: 'Vitor', serial: 'QA-CHECK-001', mode: 'APROVADO', notes: '',
   items: checklist.createChecklist({ usbPorts: ['USB esquerda', 'USB direita'] }).map(item => ({ ...item, result: 'passed', ...({ 'audio.speakers': 'Tom reproduzido nos lados esquerdo e direito', 'trackpad.movement': '20 movimentos detectados na área de teste', 'trackpad.buttons': 'Cliques detectados: esquerdo 1, direito 1' }[item.id] ? { evidence: { source: 'auto', detail: { 'audio.speakers': 'Tom reproduzido nos lados esquerdo e direito', 'trackpad.movement': '20 movimentos detectados na área de teste', 'trackpad.buttons': 'Cliques detectados: esquerdo 1, direito 1' }[item.id], at: '2026-11-16T12:00:00Z' } } : {}) })) });
 const valid = data => checklist.validateConfirmation(data).ok;
@@ -19,6 +21,18 @@ for (const id of ['trackpad.movement', 'trackpad.buttons']) {
 }
 const manualAudio = complete(); manualAudio.items.find(item => item.id === 'audio.speakers').evidence = { source: 'manual', detail: 'Saída testada pelo sistema operacional', at: '2026-11-16T12:00:00Z' };
 assert.equal(valid(manualAudio), true, 'Detecção falha permite justificativa manual');
+const appSource = fs.readFileSync(`${__dirname}/mac-ui/app.js`, 'utf8');
+const rendered = { innerHTML: '', textContent: '' };
+const uiState = { activeTest: 'audio', testChecklist: complete().items };
+const ui = vm.createContext({ state: uiState, qs: id => id === 'hardwareChecklistItems' ? rendered : id === 'usbPortTools' ? { classList: { toggle() {} } } : rendered,
+  escapeHtml: value => String(value), window: { CAIJ_TEST_CHECKLIST: checklist } });
+vm.runInContext(appSource.slice(appSource.indexOf('function renderHardwareChecklist('), appSource.indexOf('function renderTestConfirmation(')), ui);
+ui.renderHardwareChecklist();
+assert.match(rendered.innerHTML, /Detecção registrada: Tom reproduzido/);
+assert.doesNotMatch(rendered.innerHTML, /data-evidence-manual=/, 'Com detecção automática, não mostrar alternativa manual');
+delete uiState.testChecklist.find(item => item.id === 'audio.speakers').evidence;
+ui.renderHardwareChecklist();
+assert.match(rendered.innerHTML, /Detecção falhou\? Registrar verificação manual/);
 manualAudio.confirmedAt = '2026-11-16T12:00:00Z'; manualAudio.fingerprint = checklist.fingerprint(manualAudio);
 assert.match(checklist.buildReport(manualAudio), /Alto-falantes.*\[Aprovado – manual\][\s\S]*Evidência manual: Saída testada/);
 for (const field of ['technician', 'serial']) {

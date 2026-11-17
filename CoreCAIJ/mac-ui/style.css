@@ -5869,6 +5869,10 @@ button, input, select, textarea { caret-color: #89e4d2; }
 .hardware-checklist header p, .test-confirmation > p, .connector-test-guide p { color: #afc0cf; line-height: 1.6; }
 .hardware-check-item { display: grid; grid-template-columns: minmax(0,1fr) minmax(360px,440px); gap: 14px 24px; padding: 20px 0; border-bottom: 1px solid #30465b; align-items: center; }
 .hardware-check-item > label:first-child, .hardware-check-label { font-weight: 600; color: #e9f1f7; line-height: 1.5; }
+.hardware-check-identity { display: grid; gap: 8px; justify-items: start; min-width: 0; }
+.hardware-check-identity > label { font-weight: 600; color: #e9f1f7; }
+.hardware-check-evidence { margin: 0; color: #afc0cf; font-size: 13px; line-height: 1.5; }
+.hardware-check-manual { width: auto; max-width: 100%; text-align: left; white-space: normal; }
 .check-result-options { min-width: 0; margin: 0; padding: 0; border: 0; }
 .check-result-options legend { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .check-result-main { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
