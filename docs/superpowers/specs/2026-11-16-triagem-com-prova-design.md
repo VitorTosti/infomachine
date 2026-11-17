@@ -76,9 +76,11 @@ Os desenhos e as referências são guias de inspeção, não evidência fotográ
 As regras ficam em arquivo de configuração versionado, separado da tela, com versão salva no registro. Regras iniciais:
 
 - **A:** tudo perfeito, no máximo uma peça com marcas leves.
-- **B:** apenas marcas leves.
+- **B:** duas ou três peças com marcas leves, sem marcas visíveis ou dano.
 - **C:** ao menos uma peça com marcas visíveis, ou quatro ou mais peças com marcas leves.
 - **D:** qualquer dano; dano em tela ou dobradiças é sempre D.
+
+Aplicar as regras na ordem D, C, B, A. Se todas as peças forem marcadas como Não se aplica, a grade fica pendente de revisão.
 
 Não usar média: um dano relevante não pode ser escondido por outras peças em bom estado. A sugestão explica a causa, por exemplo: `Grade C: tampa superior com marcas visíveis`. Pendência ou caso sem regra deixa a avaliação como pendente de revisão. O técnico pode alterar a grade sugerida somente com justificativa, registrada no relatório.
 

@@ -107,7 +107,7 @@
 
   // The exact canonical snapshot is the fingerprint: no hash collisions or cryptographic claims.
   function snapshot(data = {}) {
-    return stable({ technician: data.technician, serial: data.serial, items: data.items, mode: data.mode || "APROVADO", notes: data.notes });
+    return stable({ technician: data.technician, serial: data.serial, items: data.items, mode: data.mode || "APROVADO", notes: data.notes, aesthetic: data.aesthetic });
   }
   function fingerprint(data) { return snapshot(data); }
   function signatureMatches(signature, data) {
@@ -129,11 +129,18 @@
       for (const item of items) {
         const resultText = item.result === "passed" && item.evidence?.source === "manual" ? "Aprovado – manual" : resultLabels[item.result] || "Resultado inválido";
         lines.push(`- ${item.label || item.id}: [${resultText}]`);
+        if (item.id === "keyboard.keys" && item.layout) lines.push(`  Layout verificado: ${String(item.layout).slice(0, 100)}`);
+        if (item.id === "keyboard.keys" && item.keyboardKeys) {
+          lines.push(`  Teclas reconhecidas no mapa: ${item.keyboardKeys.recognized}/${item.keyboardKeys.present}`);
+          if (item.keyboardKeys.manual?.length) lines.push(`  Confirmação manual: ${item.keyboardKeys.manual.join(", ")}`);
+        }
+        if (item.id === "trackpad.buttons" && item.middleManual) lines.push("  Botão central: funcionamento confirmado manualmente; clique não detectado pelo sistema.");
         if (String(item.notes || "").trim()) lines.push(`  Observação: ${String(item.notes).trim()}`);
         if (item.evidence && String(item.evidence.detail || "").trim()) lines.push(`  Evidência${item.evidence.source === "manual" ? " manual" : ""}: ${String(item.evidence.detail).trim()}`);
       }
     }
     if (String(data.notes || "").trim()) lines.push("", `Observações gerais: ${String(data.notes).trim()}`);
+    if (data.aesthetic && root.CAIJ_AESTHETIC_TRIAGE) lines.push("", root.CAIJ_AESTHETIC_TRIAGE.buildReport(data.aesthetic));
     const summary = validation.summary;
     lines.push("", `Resumo: ${summary.passed} aprovados; ${summary.failed} reprovados; ${summary.not_applicable} não se aplicam; ${summary.untested} não testados; ${summary.pending} pendentes.`);
     if (!validation.ok) lines.push(`Pendências de confirmação: ${validation.errors.join(" ")}`);

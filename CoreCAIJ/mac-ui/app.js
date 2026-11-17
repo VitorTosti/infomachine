@@ -25,6 +25,7 @@ const state = {
   },
   testChecklist: window.CAIJ_TEST_CHECKLIST.createChecklist({ usbPorts: ["USB 1", "USB 2"] }),
   testSignature: null,
+  aestheticRecord: null,
   testSessionSerial: "",
   testRecords: null,
   testRecordsDurable: false,
@@ -40,6 +41,9 @@ const state = {
   checklistNotesOpen: new Set(),
   keyboardCaptureCleanup: null,
   keyboardLayoutE14: null,
+  keyboardFnOverride: null,
+  keyboardProfile: null,
+  keyboardCustomNumpad: false,
   mouseButtonCleanup: null,
   environment: {
     internetOnline: true,
@@ -1071,7 +1075,8 @@ function syncTestsViewport() {
 function testConfirmationData() {
   const items = state.testChecklist.map((item) => ({ ...item }));
   const mode = items.some((item) => ["failed", "untested"].includes(item.result)) ? "REGISTRADO" : "APROVADO";
-  return { technician: qs("testTechnician").value.trim(), serial: String(state.info.serial || (testsOnlyMode ? qs("testEquipmentSerial").value : "") || "").trim(), items, mode, notes: qs("testGeneralNotes").value.trim() };
+  const aesthetic = state.aestheticRecord && window.CAIJ_AESTHETIC_TRIAGE?.validate(state.aestheticRecord).ok ? structuredClone(state.aestheticRecord) : undefined;
+  return { technician: qs("testTechnician").value.trim(), serial: String(state.info.serial || (testsOnlyMode ? qs("testEquipmentSerial").value : "") || "").trim(), items, mode, notes: qs("testGeneralNotes").value.trim(), aesthetic };
 }
 
 function validTestSignature() {
@@ -1103,6 +1108,11 @@ function syncTestEquipment() {
     invalidateTestConfirmation();
     state.testSessionSerial = serial;
     state.testChecklist = window.CAIJ_TEST_CHECKLIST.createChecklist({ usbPorts: ["USB 1", "USB 2"] });
+    try { state.aestheticRecord = JSON.parse(localStorage.getItem(`caij:aesthetic:${serial}`) || "null"); } catch (_) { state.aestheticRecord = null; }
+    if (!state.aestheticRecord || state.aestheticRecord.rulesVersion !== window.CAIJ_AESTHETIC_TRIAGE?.rulesVersion) state.aestheticRecord = window.CAIJ_AESTHETIC_TRIAGE?.createRecord() || null;
+    state.keyboardFnOverride = null;
+    state.keyboardProfile = null;
+    state.keyboardCustomNumpad = false;
     state.keyboardPressed = null;
     state.keyboardRecentEvents = [];
     Object.keys(state.tests).forEach((key) => state.tests[key] = "pending");
@@ -1113,6 +1123,7 @@ function syncTestEquipment() {
       const record = JSON.parse(localStorage.getItem("caij:hardware-test-last-confirmed") || "null");
       if (record?.serial === serial && window.CAIJ_TEST_CHECKLIST.validateConfirmation(record).ok && window.CAIJ_TEST_CHECKLIST.signatureMatches(record, record)) {
         state.testChecklist = record.items;
+        if (record.aesthetic && !state.aestheticRecord?.parts?.some((part) => part.status)) state.aestheticRecord = record.aesthetic;
         qs("testTechnician").value = record.technician;
         qs("testGeneralNotes").value = record.notes || "";
         state.testSignature = record;
@@ -1625,10 +1636,13 @@ function listenForMouseButtons(target, onButton, allowedButtons = [0, 1, 2]) {
   let lastButton = -1;
   let lastTime = 0;
   let lastPhysicalRight = 0;
+  let middleHeld = false;
   const record = (event, button) => {
+    if (event.target?.closest?.("button")) return;
     if (!allowedButtons.includes(button)) return;
     if (event.type === "click" && event.detail === 0) return;
     if (event.type === "contextmenu" && Date.now() - lastPhysicalRight > 500) return;
+    if ((event.type === "pointerdown" || event.type === "mousedown") && button === 1) middleHeld = true;
     if ((event.type === "pointerdown" || event.type === "mousedown") && button === 2) lastPhysicalRight = Date.now();
     event.preventDefault();
     const now = Date.now();
@@ -1639,6 +1653,8 @@ function listenForMouseButtons(target, onButton, allowedButtons = [0, 1, 2]) {
   };
   const handlers = [
     ["pointerdown", (event) => record(event, event.button)],
+    ["pointermove", (event) => { if ((event.buttons & 4) && !middleHeld) { middleHeld = true; record(event, 1); } else if (!(event.buttons & 4)) middleHeld = false; }],
+    ["pointerup", (event) => { if (event.button === 1 || !(event.buttons & 4)) middleHeld = false; }],
     ["mousedown", (event) => record(event, event.button)],
     ["click", (event) => record(event, 0)],
     ["auxclick", (event) => record(event, event.button)],
@@ -1649,7 +1665,10 @@ function listenForMouseButtons(target, onButton, allowedButtons = [0, 1, 2]) {
 }
 
 function openKeyboardTest() {
-  const isE14Keyboard = isWindowsPreview && /\bE14\b/i.test(state.info?.modelo || "");
+  const profile = state.keyboardProfile || (state.keyboardFnOverride != null ? (state.keyboardFnOverride ? "fn" : "compact") : /\bE14\b/i.test(state.info?.modelo || "") ? "fn" : "compact");
+  const isE14Keyboard = isWindowsPreview && (profile === "fn" || (profile === "custom" && state.keyboardFnOverride === true));
+  const hasNumpad = isWindowsPreview && (profile === "numpad" || (profile === "custom" && state.keyboardCustomNumpad));
+  const layoutKey = `${profile}:${isE14Keyboard}:${hasNumpad}`;
   state.mouseButtonCleanup?.();
   state.mouseButtonCleanup = null;
   state.keyboardCaptureCleanup?.();
@@ -1660,7 +1679,7 @@ function openKeyboardTest() {
   }
   const pressed = state.keyboardPressed || new Set();
   state.keyboardPressed = pressed;
-  state.keyboardLayoutE14 = isE14Keyboard;
+  state.keyboardLayoutE14 = layoutKey;
   const macKeyboardRows = [
     ["ESC","F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12"],
     ["BACKQUOTE","1","2","3","4","5","6","7","8","9","0","-","=","BACKSPACE"],
@@ -1686,7 +1705,7 @@ function openKeyboardTest() {
   let keyboardMarkup = "";
   let totalKeys = 0;
   if (isWindowsPreview) {
-    const functionKeys = ["ESC","F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12","PRINTSCREEN","SCROLLLOCK","PAUSE"];
+    const functionKeys = ["ESC","F1","F2","F3","F4","F5","F6","F7","F8","F9","F10","F11","F12","PRINTSCREEN", ...(hasNumpad ? ["SCROLLLOCK","PAUSE"] : [])];
     const mainRows = [
       ["BACKQUOTE","1","2","3","4","5","6","7","8","9","0","-","=","BACKSPACE"],
       ["TAB","Q","W","E","R","T","Y","U","I","O","P","[","]","BACKSLASH"],
@@ -1694,23 +1713,25 @@ function openKeyboardTest() {
       ["SHIFTLEFT","Z","X","C","V","B","N","M",",",".","/","SHIFTRIGHT"],
       isE14Keyboard
         ? ["FN","CONTROLLEFT","WINDOWSLEFT","ALTLEFT","SPACE","ALTRIGHT","PRINTSCREEN","INTLRO","CONTROLRIGHT"]
-        : ["CONTROLLEFT","WINDOWSLEFT","ALTLEFT","SPACE","ALTRIGHT","MENU","CONTROLRIGHT"],
+        : hasNumpad
+          ? ["CONTROLLEFT","WINDOWSLEFT","ALTLEFT","SPACE","ALTRIGHT","MENU","CONTROLRIGHT"]
+          : ["CONTROLLEFT","WINDOWSLEFT","ALTLEFT","SPACE","ALTRIGHT","PRINTSCREEN","INTLRO"],
     ];
-    const navigationKeys = ["INSERT","HOME","PAGEUP","DELETE","END","PAGEDOWN","ARROWUP","ARROWLEFT","ARROWDOWN","ARROWRIGHT"];
-    const numpadKeys = ["NUMLOCK","NUMDIVIDE","NUMMULTIPLY","NUMSUBTRACT","NUM7","NUM8","NUM9","NUMADD","NUM4","NUM5","NUM6","NUM1","NUM2","NUM3","NUMENTER","NUM0","NUMDECIMAL"];
+    const navigationKeys = ["INSERT","PAGEUP","DELETE","PAGEDOWN","ARROWUP","ARROWLEFT","ARROWDOWN","ARROWRIGHT", ...(hasNumpad ? ["HOME","END"] : [])];
+    const numpadKeys = hasNumpad ? ["NUMLOCK","NUMDIVIDE","NUMMULTIPLY","NUMSUBTRACT","NUM7","NUM8","NUM9","NUMADD","NUM4","NUM5","NUM6","NUM1","NUM2","NUM3","NUMENTER","NUM0","NUMDECIMAL"] : [];
     totalKeys = new Set([...functionKeys, ...mainRows.flat(), ...navigationKeys, ...numpadKeys]).size;
     keyboardMarkup = `
-      <div class="keyboard-map windows-keyboard" aria-label="Mapa completo do teclado Windows">
+      <div class="keyboard-map windows-keyboard${hasNumpad ? "" : " without-numpad"}" aria-label="Mapa das teclas presentes no equipamento">
         <div class="windows-function-row">
           <div class="windows-function-main">${functionKeys.slice(0, 13).map((key) => renderKey(key, ["F1","F5","F9"].includes(key) ? `function-${key.toLowerCase()}` : "")).join("")}</div>
-          <div class="windows-function-end">${(isE14Keyboard ? [null,"SCROLLLOCK","PAUSE","HOME","END"] : ["PRINTSCREEN","SCROLLLOCK","PAUSE","HOME","END"]).map((key) => key ? renderKey(key) : '<span class="keyboard-empty" aria-hidden="true"></span>').join("")}</div>
+          <div class="windows-function-end">${(hasNumpad ? (isE14Keyboard ? [null,"SCROLLLOCK","PAUSE","HOME","END"] : ["PRINTSCREEN","SCROLLLOCK","PAUSE","HOME","END"]) : [null]).map((key) => key ? renderKey(key) : '<span class="keyboard-empty" aria-hidden="true"></span>').join("")}</div>
         </div>
         <div class="windows-keyboard-grid">
           <div class="windows-main-keys">${mainRows.map((row) => `<div class="keyboard-row">${row.map((key) => renderKey(key)).join("")}</div>`).join("")}</div>
           <div class="windows-navigation-keys">
             ${["PAGEUP","PAGEDOWN","INSERT","DELETE","ARROWUP"].map((key) => renderKey(key)).join("")}
           </div>
-          <div class="windows-numpad">
+          <div class="windows-numpad${hasNumpad ? "" : " hidden"}">
             ${numpadKeys.map((key) => renderKey(key, key === "NUMADD" ? "numpad-add" : key === "NUMENTER" ? "numpad-enter" : key === "NUM0" ? "numpad-zero" : "")).join("")}
           </div>
         </div>
@@ -1723,9 +1744,31 @@ function openKeyboardTest() {
     keyboardMarkup = `<div class="keyboard-map mac-keyboard">${macKeyboardRows.map((row) => `<div class="keyboard-row">${row.map((key) => renderKey(key)).join("")}</div>`).join("")}</div>`;
   }
   const keyboardHelp = isWindowsPreview
-    ? "Pressione cada tecla. No E14, confirme Fn após usá-la com uma tecla de função. Se Prt Sc abrir a captura, confirme-a manualmente. Observe a sequência abaixo para detectar teclas repetidas."
+    ? "Escolha o layout da máquina e teste as teclas presentes. Fn deve ser confirmada após uso com uma tecla de função; Prt Sc pode exigir confirmação manual. Observe a sequência para identificar repetições."
     : "Pressione cada tecla. Se F11 controlar a tela do Mac, clique em F11 no mapa para confirmar.";
-  qs("activeTestBody").innerHTML = `<div class="keyboard-progress"><div><span>Teclas reconhecidas</span><small>${keyboardHelp}</small>${isWindowsPreview ? '<small id="keyboardLastEvent" aria-live="polite">Última tecla: aguardando</small>' : ""}</div><strong id="keyboardCount">0 / ${totalKeys}</strong></div><div class="keyboard-recent"><span>Últimas teclas recebidas</span><div id="keyboardRecentKeys" class="keyboard-recent-line" aria-label="Sequência das últimas teclas recebidas"></div></div><div class="keyboard-capture-controls"><button type="button" class="secondary" id="focusKeyboardCapture">Focar área do teclado</button><p id="keyboardCaptureStatus" role="status"></p></div>${keyboardMarkup}`;
+  const layoutControls = isWindowsPreview ? `<label class="keyboard-layout-choice">Layout do teclado<select id="keyboardProfile"><option value="compact" ${profile === "compact" ? "selected" : ""}>Compacto</option><option value="fn" ${profile === "fn" ? "selected" : ""}>Com Fn (E14)</option><option value="numpad" ${profile === "numpad" ? "selected" : ""}>Com teclado numérico</option><option value="custom" ${profile === "custom" ? "selected" : ""}>Personalizado</option></select></label>${profile === "custom" ? `<label class="keyboard-layout-choice"><input type="checkbox" id="keyboardHasFn" ${isE14Keyboard ? "checked" : ""}> Fn à esquerda</label><label class="keyboard-layout-choice"><input type="checkbox" id="keyboardHasNumpad" ${hasNumpad ? "checked" : ""}> Teclado numérico</label>` : ""}` : "";
+  qs("activeTestBody").innerHTML = `<div class="keyboard-progress"><div><span>Teclas reconhecidas</span><small>${keyboardHelp}</small>${isWindowsPreview ? '<small id="keyboardLastEvent" aria-live="polite">Última tecla: aguardando</small>' : ""}</div><strong id="keyboardCount">0 / ${totalKeys}</strong></div><div class="keyboard-recent"><span>Últimas teclas recebidas</span><div id="keyboardRecentKeys" class="keyboard-recent-line" aria-label="Sequência das últimas teclas recebidas"></div></div><div class="keyboard-capture-controls"><button type="button" class="secondary" id="focusKeyboardCapture">Focar área do teclado</button><p id="keyboardCaptureStatus" role="status"></p>${layoutControls}</div>${keyboardMarkup}`;
+  if (isWindowsPreview) {
+    const layoutDescription = (selected, fn, numpad) => ({ compact: "Compacto", fn: "Com Fn", numpad: "Com teclado numérico", custom: `Personalizado (Fn: ${fn ? "sim" : "não"}; numérico: ${numpad ? "sim" : "não"})` })[selected];
+    const updateLayout = (nextProfile, fn, numpad) => {
+      state.keyboardProfile = nextProfile;
+      state.keyboardFnOverride = fn;
+      state.keyboardCustomNumpad = numpad;
+      const item = state.testChecklist?.find((entry) => entry.id === "keyboard.keys");
+      if (item) { item.result = "pending"; item.layout = layoutDescription(nextProfile, fn, numpad); delete item.keyboardKeys; }
+      invalidateTestConfirmation();
+      openKeyboardTest();
+      renderHardwareChecklist();
+      renderTests();
+    };
+    qs("keyboardProfile").addEventListener("change", (event) => updateLayout(event.target.value, false, state.keyboardCustomNumpad));
+    if (profile === "custom") {
+      qs("keyboardHasFn").addEventListener("change", (event) => updateLayout("custom", event.target.checked, state.keyboardCustomNumpad));
+      qs("keyboardHasNumpad").addEventListener("change", (event) => updateLayout("custom", state.keyboardFnOverride, event.target.checked));
+    }
+    const item = state.testChecklist?.find((entry) => entry.id === "keyboard.keys");
+    if (item && !item.layout) item.layout = layoutDescription(profile, isE14Keyboard, hasNumpad);
+  }
   const recentEvents = state.keyboardRecentEvents || [];
   state.keyboardRecentEvents = recentEvents;
   const renderRecentKeys = () => {
@@ -1741,7 +1784,7 @@ function openKeyboardTest() {
     if (pressed.has(item.dataset.key)) item.classList.add("pressed");
   });
   qs("keyboardCount").textContent = `${pressed.size} / ${totalKeys}`;
-  const confirmKey = (key) => {
+  const confirmKey = (key, manual = false) => {
     const elements = [...qs("activeTestBody").querySelectorAll("kbd[data-key]")]
       .filter((item) => item.dataset.key === key);
     if (!elements.length) return;
@@ -1750,6 +1793,13 @@ function openKeyboardTest() {
       element.classList.add("pressed");
     });
     pressed.add(key);
+    const checklistItem = state.testChecklist?.find((entry) => entry.id === "keyboard.keys");
+    if (checklistItem) {
+      const manualKeys = new Set(checklistItem.keyboardKeys?.manual || []);
+      if (manual) manualKeys.add(key);
+      checklistItem.keyboardKeys = { recognized: pressed.size, present: totalKeys, manual: [...manualKeys] };
+      invalidateTestConfirmation();
+    }
     qs("keyboardCount").textContent = `${pressed.size} / ${totalKeys}`;
   };
   state.keyboardHandler = (event) => {
@@ -1761,7 +1811,7 @@ function openKeyboardTest() {
       event.preventDefault();
       event.stopPropagation();
       event.stopImmediatePropagation();
-      if (event.type === "keydown" && !event.repeat) confirmKey(event.target.dataset.key);
+      if (event.type === "keydown" && !event.repeat) confirmKey(event.target.dataset.key, true);
       return;
     }
     event.preventDefault();
@@ -1793,7 +1843,7 @@ function openKeyboardTest() {
     }
   };
   qs("activeTestBody").querySelectorAll('kbd[data-manual-confirm="true"]').forEach((item) => {
-    item.addEventListener("click", () => confirmKey(item.dataset.key));
+    item.addEventListener("click", () => confirmKey(item.dataset.key, true));
   });
   const keyboardMap = qs("activeTestBody").querySelector(".keyboard-map");
   keyboardMap.tabIndex = 0;
@@ -1835,8 +1885,9 @@ function openKeyboardTest() {
 
 function refreshKeyboardLayoutForDevice() {
   if (!isWindowsPreview || state.activeTest !== "keyboard" || !state.keyboardHandler) return;
-  const isE14Keyboard = /\bE14\b/i.test(state.info?.modelo || "");
-  if (isE14Keyboard !== state.keyboardLayoutE14) openKeyboardTest();
+  const profile = state.keyboardProfile || (state.keyboardFnOverride != null ? (state.keyboardFnOverride ? "fn" : "compact") : /\bE14\b/i.test(state.info?.modelo || "") ? "fn" : "compact");
+  const layoutKey = `${profile}:${profile === "fn" || (profile === "custom" && state.keyboardFnOverride === true)}:${profile === "numpad" || (profile === "custom" && state.keyboardCustomNumpad)}`;
+  if (layoutKey !== state.keyboardLayoutE14) openKeyboardTest();
 }
 
 async function playTestTone(volume = 50, pan = 0) {
@@ -1947,7 +1998,7 @@ function openScreenTest() {
 }
 
 function openTrackpadTest() {
-  qs("activeTestBody").innerHTML = '<div class="trackpad-stats" aria-label="Leituras do mouse"><span><small>Movimento</small><strong id="trackMoves">0</strong></span><span><small>Clique esquerdo</small><strong id="trackLeft">0</strong></span><span><small>Clique do meio (opcional)</small><strong id="trackMiddle">0</strong></span><span><small>Clique direito</small><strong id="trackRight">0</strong></span><span><small>Rolagem</small><strong id="trackScrolls">0</strong></span></div><div class="trackpad-zone" id="trackpadZone"><i id="trackPointer"></i><div class="trackpad-guide" aria-hidden="true"><span>ÁREA DE TESTE</span><strong>Explore toda a superfície</strong><small>Mova o ponteiro e teste os cliques esquerdo e direito.</small><div class="trackpad-gesture-guide"><span>1 · Clique esquerdo</span><span>2 · Clique direito</span><span>3 · Rolagem</span></div></div></div><p id="trackLastPointer" aria-live="polite">Último clique: aguardando. Clique em qualquer ponto da área deste teste.</p>';
+  qs("activeTestBody").innerHTML = '<div class="trackpad-stats" aria-label="Leituras do mouse"><span><small>Movimento</small><strong id="trackMoves">0</strong></span><span><small>Clique esquerdo</small><strong id="trackLeft">0</strong></span><span><small>Clique do meio (opcional)</small><strong id="trackMiddle">0</strong></span><span><small>Clique direito</small><strong id="trackRight">0</strong></span><span><small>Rolagem</small><strong id="trackScrolls">0</strong></span></div><div class="trackpad-zone" id="trackpadZone"><i id="trackPointer"></i><div class="trackpad-guide" aria-hidden="true"><span>ÁREA DE TESTE</span><strong>Explore toda a superfície</strong><small>Mova o ponteiro e teste os cliques esquerdo e direito.</small><div class="trackpad-gesture-guide"><span>1 · Clique esquerdo</span><span>2 · Clique direito</span><span>3 · Rolagem</span></div></div></div><p id="trackLastPointer" aria-live="polite">Último clique: aguardando. Clique em qualquer ponto da área deste teste.</p><button type="button" class="secondary" id="confirmMiddleManually">Botão central funcionou, mas não foi detectado</button>';
   const zone = qs("trackpadZone");
   const pointer = qs("trackPointer");
   let moves = 0;
@@ -1975,9 +2026,16 @@ function openTrackpadTest() {
     if (moves >= 20) recordEvidence("trackpad.movement", `${moves} movimentos detectados na área de teste`);
   });
   state.mouseButtonCleanup = listenForMouseButtons(qs("activeTestBody"), (button) => {
+    if (button === 1) { const item = state.testChecklist?.find((entry) => entry.id === "trackpad.buttons"); if (item?.middleManual) { delete item.middleManual; invalidateTestConfirmation(); } }
     updateMetric(clickIds[button], ++clicks[button]);
     qs("trackLastPointer").textContent = `Último clique: ${["esquerdo", "do meio", "direito"][button]} detectado`;
     if (clicks[0] && clicks[2]) recordEvidence("trackpad.buttons", `Cliques detectados: esquerdo ${clicks[0]}, direito ${clicks[2]}`);
+  });
+  qs("confirmMiddleManually").addEventListener("click", () => {
+    qs("trackMiddle").textContent = "Manual";
+    qs("trackLastPointer").textContent = "Botão central confirmado pelo técnico; o sistema não recebeu um evento de clique.";
+    const item = state.testChecklist?.find((entry) => entry.id === "trackpad.buttons");
+    if (item) { item.middleManual = true; invalidateTestConfirmation(); }
   });
   zone.addEventListener("wheel", (event) => { event.preventDefault(); updateMetric("trackScrolls", ++scrolls); }, { passive: false });
 }
@@ -2017,27 +2075,39 @@ async function openTest(test) {
   if (test === "charger") {
     let disconnected = false;
     qs("activeTestBody").insertAdjacentHTML("beforeend", '<div class="connector-test-guide"><p>Desconecte o carregador e registre a leitura. Depois conecte-o e registre novamente.</p><button type="button" id="powerDisconnected">1. Ler desconectado</button> <button type="button" id="powerConnected">2. Ler conectado</button><p id="powerStatus" role="status">Aguardando a primeira leitura.</p></div>');
+    const checklist = state.testChecklist;
+    const serial = String(state.info.serial || "").trim();
+    const panel = qs("activeTestBody");
+    const status = qs("powerStatus");
+    const isCurrent = () => state.activeTest === "charger" && state.testChecklist === checklist && state.testSessionSerial === serial && String(state.info.serial || "").trim() === serial && panel.contains(status);
     qs("powerDisconnected").addEventListener("click", async () => {
-      try { const reading = await api("/api/power-status"); disconnected = reading.lineStatus === "Offline"; qs("powerStatus").textContent = disconnected ? "Alimentação por bateria detectada. Reconecte o carregador." : "O Windows não detectou alimentação por bateria. Confira se o carregador foi desconectado."; }
-      catch (error) { qs("powerStatus").textContent = `${error.message} Você pode registrar a verificação manual com justificativa.`; }
+      try { const reading = await api("/api/power-status"); if (!isCurrent()) return; disconnected = reading.lineStatus === "Offline"; status.textContent = disconnected ? "Alimentação por bateria detectada. Reconecte o carregador." : "O Windows não detectou alimentação por bateria. Confira se o carregador foi desconectado."; }
+      catch (error) { if (isCurrent()) status.textContent = `${error.message} Você pode registrar a verificação manual com justificativa.`; }
     });
     qs("powerConnected").addEventListener("click", async () => {
-      if (!disconnected) { qs("powerStatus").textContent = "Registre primeiro a alimentação por bateria."; return; }
+      if (!disconnected) { if (isCurrent()) status.textContent = "Registre primeiro a alimentação por bateria."; return; }
       try {
         const reading = await api("/api/power-status");
-        if (reading.lineStatus !== "Online") { qs("powerStatus").textContent = "O Windows ainda não detecta alimentação pela tomada."; return; }
+        if (!isCurrent()) return;
+        if (reading.lineStatus !== "Online") { status.textContent = "O Windows ainda não detecta alimentação pela tomada."; return; }
         const item = state.testChecklist.find((entry) => entry.id === "charger.connectors");
         if (item) { invalidateTestConfirmation(); item.evidence = { source: "auto", detail: "Alimentação mudou de bateria para tomada após reconectar o carregador", at: new Date().toISOString() }; renderHardwareChecklist(); renderTests(); }
-        qs("powerStatus").textContent = "Conexão do carregador detectada. Confirme o funcionamento e a firmeza no checklist.";
-      } catch (error) { qs("powerStatus").textContent = `${error.message} Você pode registrar a verificação manual com justificativa.`; }
+        status.textContent = "Conexão do carregador detectada. Confirme o funcionamento e a firmeza no checklist.";
+      } catch (error) { if (isCurrent()) status.textContent = `${error.message} Você pode registrar a verificação manual com justificativa.`; }
     });
   }
   if (test === "network") {
     qs("activeTestBody").innerHTML = '<div class="connector-test-guide"><p>Conecte Ethernet e Wi-Fi separadamente. A leitura identifica a interface ativa e o IP; confirme também o acesso à rede no checklist.</p><button type="button" id="detectNetwork">Detectar conexões</button><p id="networkStatus" role="status">Aguardando leitura.</p></div>';
+    const checklist = state.testChecklist;
+    const serial = String(state.info.serial || "").trim();
+    const panel = qs("activeTestBody");
+    const status = qs("networkStatus");
+    const isCurrent = () => state.activeTest === "network" && state.testChecklist === checklist && state.testSessionSerial === serial && String(state.info.serial || "").trim() === serial && panel.contains(status);
     qs("detectNetwork").addEventListener("click", async () => {
       const button = qs("detectNetwork"); button.disabled = true;
       try {
         const reading = await api("/api/network-status");
+        if (!isCurrent()) return;
         const lines = [];
         for (const kind of ["ethernet", "wifi"]) {
           const connected = (reading.interfaces || []).find((entry) => entry.kind === kind && entry.connected);
@@ -2050,10 +2120,10 @@ async function openTest(test) {
             if (item.result === "passed") item.result = "pending";
           }
         }
-        qs("networkStatus").textContent = `${lines.join(" | ")}. Confirme o acesso observado no checklist.`;
+        status.textContent = `${lines.join(" | ")}. Confirme o acesso observado no checklist.`;
         renderHardwareChecklist(); renderTests();
-      } catch (error) { qs("networkStatus").textContent = `${error.message} Se a conexão funciona, registre a verificação manual com justificativa.`; }
-      finally { button.disabled = false; }
+      } catch (error) { if (isCurrent()) status.textContent = `${error.message} Se a conexão funciona, registre a verificação manual com justificativa.`; }
+      finally { if (isCurrent()) button.disabled = false; }
     });
   }
   qs("testWorkspace").scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -2343,6 +2413,25 @@ async function copyDeviceInfo() {
 }
 
 function wireControls() {
+  qs("openAestheticTriage").addEventListener("click", () => {
+    if (!state.aestheticRecord) state.aestheticRecord = window.CAIJ_AESTHETIC_TRIAGE.createRecord();
+    stopActiveTest();
+    qs("testPanel").classList.add("hidden");
+    qs("testReviewPanel").classList.add("hidden");
+    qs("aestheticTriage").classList.remove("hidden");
+    window.CAIJ_AESTHETIC_TRIAGE.mount(qs("aestheticTriage"), state.aestheticRecord, (record) => {
+      state.aestheticRecord = record;
+      try { localStorage.setItem(`caij:aesthetic:${state.testSessionSerial}`, JSON.stringify(record)); } catch (_) {}
+      invalidateTestConfirmation();
+      renderTests();
+    });
+  });
+  qs("aestheticTriage").addEventListener("click", (event) => {
+    if (!event.target.closest("#closeAestheticTriage")) return;
+    qs("aestheticTriage").classList.add("hidden");
+    qs("testPanel").classList.remove("hidden");
+    renderTests();
+  });
   qs("printHistorySearch").addEventListener("input", renderPrintHistory);
   qs("printHistoryList").addEventListener("click", (event) => { const button = event.target.closest("[data-review-print]"); if (button) openHistoryReview(Number(button.dataset.reviewPrint)); });
   qs("closeHistoryReview").addEventListener("click", () => qs("historyReviewDialog").close());
@@ -2408,7 +2497,7 @@ function wireControls() {
     state.keyboardPressed = null;
     state.keyboardRecentEvents = [];
     invalidateTestConfirmation();
-    state.testChecklist.forEach((item) => { item.result = "pending"; item.notes = ""; delete item.evidence; });
+    state.testChecklist.forEach((item) => { item.result = "pending"; item.notes = ""; delete item.evidence; delete item.middleManual; });
     qs("testGeneralNotes").value = "";
     Object.keys(state.tests).forEach((key) => state.tests[key] = "pending");
     stopActiveTest();

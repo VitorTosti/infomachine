@@ -134,6 +134,11 @@ const nativeFooter = 'Confirmação local do técnico; o envio ao rastreador dep
 assert.equal(report.split('\n').at(-1), nativeFooter, 'Exclusoes N/A nao podem deslocar o rodape exigido pelo consumidor nativo');
 assert.ok(report.indexOf('Itens marcados Não se aplica') < report.lastIndexOf(nativeFooter));
 assert.match(report, /Situação: REGISTRADO/);
+const layoutReport = structuredClone(reportData);
+layoutReport.items.find(item => item.id === 'keyboard.keys').layout = 'Com Fn';
+layoutReport.items.find(item => item.id === 'keyboard.keys').keyboardKeys = { recognized: 85, present: 87, manual: ['FN', 'PRINTSCREEN'] };
+assert.match(checklist.buildReport(layoutReport), /Layout verificado: Com Fn/);
+assert.match(checklist.buildReport(layoutReport), /Teclas reconhecidas no mapa: 85\/87[\s\S]*Confirmação manual: FN, PRINTSCREEN/);
 for (const unconfirmed of [complete(), { ...reportData, confirmedAt: undefined },
   { ...reportData, confirmedAt: 'data invalida' }, { ...reportData, fingerprint: undefined },
   { ...reportData, notes: 'Alteracao depois da confirmacao' }]) {

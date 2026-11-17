@@ -323,6 +323,10 @@ function Save-LocalTestRecord {
     if ($usbPorts -gt 32 -or @($requiredIds | Where-Object { -not $ids.ContainsKey($_) }).Count) { throw 'Checklist incompleto ou portas USB invalidas.' }
     if ($Record.mode -eq 'APROVADO' -and -not @($items | Where-Object result -eq 'passed').Count) { throw 'Aprovacao exige item aprovado.' }
     $snapshot = [ordered]@{ technician=[string]$Record.technician; serial=[string]$Record.serial; items=$items; mode=[string]$Record.mode; confirmedAt=[string]$Record.confirmedAt; fingerprint=[string]$Record.fingerprint; notes=[string]$Record.notes }
+    if ($Record.PSObject.Properties['aesthetic']) {
+        if ($null -eq $Record.aesthetic -or $Record.aesthetic -isnot [pscustomobject] -and $Record.aesthetic -isnot [System.Collections.IDictionary]) { throw 'Avaliacao estetica invalida.' }
+        $snapshot['aesthetic'] = $Record.aesthetic
+    }
     $records = New-Object 'System.Collections.Generic.List[object]'
     foreach ($entry in @(Read-LocalTestRecords -Path $Path)) { $records.Add($entry) }
     $records.Add([pscustomobject]$snapshot)

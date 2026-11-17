@@ -245,6 +245,10 @@ class AppState:
             if mode == "APROVADO" and not any(item["result"] == "passed" for item in items):
                 raise ValueError("Aprovacao exige item aprovado.")
             snapshot = {key: record.get(key, "") for key in ("technician", "serial", "items", "mode", "confirmedAt", "fingerprint", "notes")}
+            if "aesthetic" in record:
+                if not isinstance(record["aesthetic"], dict):
+                    raise ValueError("Avaliacao estetica invalida.")
+                snapshot["aesthetic"] = record["aesthetic"]
             records.append(snapshot)
             path.parent.mkdir(parents=True, exist_ok=True)
             pending = path.with_suffix(".tmp")

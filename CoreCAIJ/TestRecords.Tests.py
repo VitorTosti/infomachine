@@ -8,6 +8,7 @@ next(item for item in items if item['id']=='charger.connectors')['evidence']=dic
 next(item for item in items if item['id']=='network.ethernet')['evidence']=dict(source='auto',detail='Interface ethernet conectada: Rede; IP 192.168.1.2',at='2026-11-16T12:00:00Z')
 next(item for item in items if item['id']=='network.wifi')['evidence']=dict(source='auto',detail='Interface wifi conectada: Wi-Fi; IP 192.168.1.3',at='2026-11-16T12:00:00Z')
 record=dict(technician='TÃ©cnico Ã',serial='ABC',items=items,mode='APROVADO',confirmedAt='2026-11-12T12:00:00.000Z',fingerprint='snapshot',notes='ObservaÃ§Ã£o')
+record['aesthetic']={'version':1,'grade':'B','parts':[{'id':'lid','condition':'light'}]}
 with tempfile.TemporaryDirectory() as d:
  app=m.AppState.__new__(m.AppState);app.lock=threading.RLock();app.test_records_path=lambda:pathlib.Path(d)/'registros.json'
  assert app.test_records()['records']==[]
@@ -18,6 +19,7 @@ with tempfile.TemporaryDirectory() as d:
  assert app.test_records(record)['record']['technician']=='TÃ©cnico Ã'
  fresh=m.AppState.__new__(m.AppState);fresh.lock=threading.RLock();fresh.test_records_path=app.test_records_path
  assert len(fresh.test_records()['records'])==1
+ assert fresh.test_records()['records'][0]['aesthetic']==record['aesthetic']
  fresh.test_records(record);assert pathlib.Path(d,'registros.json.bak').exists()
  before=pathlib.Path(d,'registros.json').read_bytes()
  for change in [dict(items=items[:1]),dict(items=[{**i,'result':'pending'} for i in items]),dict(mode='APROVADO',items=[{**i,'result':'failed','notes':'falha'} for i in items])]:

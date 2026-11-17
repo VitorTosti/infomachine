@@ -474,6 +474,7 @@
           </div>
         </div>
         <div class="tests-head-tools">
+          <button type="button" class="secondary" id="openAestheticTriage">Avaliação estética</button>
           <div class="tests-completion"><strong id="testsCompletion">0 de 9</strong><div class="tests-progress" aria-label="Progresso dos testes"><span id="testsProgress"></span></div></div>
           <button type="button" class="icon-btn" id="closeTests">Voltar ao menu</button>
         </div>
@@ -483,6 +484,7 @@
         <nav class="tests-rail" aria-label="Testes"><ol id="testRail"></ol></nav>
 
         <section class="test-workspace" id="testWorkspace">
+          <section id="aestheticTriage" class="aesthetic-triage hidden" aria-label="Avaliação estética do equipamento"></section>
           <div id="testPanel">
             <header><h3 id="activeTestTitle">Teste</h3><span id="activeTestStep">1 de 9</span></header>
             <p id="activeTestHelp"></p>
@@ -613,6 +615,7 @@
   <script src="storage.js"></script>
   <script src="observation.js"></script>
   <script src="test-checklist.js"></script>
+  <script src="aesthetic-triage.js"></script>
   <script src="portable.js"></script>
   <script src="serial-os.js"></script>
   <script src="qr-encoder.js"></script>

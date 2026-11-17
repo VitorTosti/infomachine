@@ -5061,6 +5061,53 @@ button, input, select, textarea { caret-color: #89e4d2; }
 .windows-keyboard-footer { height: calc(var(--key) + 9px); }
 
 /* Etiquetas: foco na prévia, edição direta e uma única saída de impressão. */
+.aesthetic-triage.hidden { display: none; }
+#testsView:has(.aesthetic-triage:not(.hidden)) .tests-action-bar { display: none; }
+.aesthetic-triage { min-width: 0; overflow: auto; color: #eaf2fa; }
+.aesthetic-shell { display: grid; gap: 18px; padding: 20px; }
+.aesthetic-head { display: flex; justify-content: space-between; align-items: start; gap: 20px; }
+.aesthetic-head h3 { margin: 0 0 4px; font-size: 23px; }
+.aesthetic-head p { margin: 0; color: #a9bfd0; }
+.aesthetic-head strong { color: #78e3bb; white-space: nowrap; }
+.aesthetic-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.aesthetic-steps button { min-height: 44px; text-align: left; padding: 10px 12px; color: #a9bfd0; background: #14263a; border: 1px solid #334b60; border-radius: 9px; }
+.aesthetic-steps button.done { color: #79dfb8; }
+.aesthetic-steps button[aria-current="step"] { color: #eaf2fa; border-color: #69d6c0; background: #193b43; }
+.aesthetic-body { display: grid; grid-template-columns: minmax(300px, 1.1fr) minmax(360px, .9fr); gap: 20px; }
+.aesthetic-illustration, .aesthetic-form, .aesthetic-verdict { padding: 20px; border: 1px solid #31495d; border-radius: 12px; background: #102032; }
+.aesthetic-illustration { display: grid; gap: 12px; align-content: start; }
+.aesthetic-illustration small { color: #a9bfd0; }
+.aesthetic-diagram { position: relative; width: 100%; min-height: 310px; border: 1px solid #53778a; border-radius: 12px; background: #192f42; cursor: crosshair; overflow: hidden; }
+.aesthetic-diagram::before { content: ""; position: absolute; inset: 13% 15%; border: 9px solid #8ab5bd; border-radius: 13px; background: #263f50; box-shadow: 0 16px 0 -7px #76a2aa; }
+.aesthetic-diagram:is(.aesthetic-bezel,.aesthetic-display)::before { inset: 9% 21% 15%; border-width: 13px; background: #0b1b2a; }
+.aesthetic-diagram.aesthetic-display::before { border-width: 5px; background: #90b4bc; }
+.aesthetic-diagram.aesthetic-deck::before { inset: 20% 12%; border-width: 7px; background: repeating-linear-gradient(0deg,#263f50 0 12px,#668995 13px 14px); }
+.aesthetic-diagram.aesthetic-hinges::before { inset: 47% 15%; height: 18px; border-width: 3px; background: #7da7ad; }
+.aesthetic-diagram.aesthetic-ports::before { inset: 40% 12%; height: 50px; border-width: 5px; background: repeating-linear-gradient(90deg,#243e4d 0 45px,#91b4bb 46px 53px); }
+.aesthetic-diagram.aesthetic-missing::before { border-style: dashed; background: transparent; }
+.aesthetic-mark { position: absolute; z-index: 2; display: grid; place-items: center; width: 24px; height: 24px; transform: translate(-50%,-50%); border-radius: 50%; color: #102032; background: #ffbc82; font-size: 12px; font-weight: 700; }
+.aesthetic-index { color: #75dec2; font-size: 12px; font-weight: 700; }
+.aesthetic-form h4 { margin: 6px 0; font-size: 22px; }
+.aesthetic-form p { color: #afc5d3; }
+.aesthetic-choices { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin: 16px 0; }
+.aesthetic-choices button { display: grid; gap: 2px; min-height: 60px; padding: 10px; text-align: left; color: #eaf2fa; border: 1px solid #345169; border-radius: 9px; background: #182c3f; }
+.aesthetic-choices button small { color: #a9bfd0; }
+.aesthetic-sample { display: block; width: 100%; height: 30px; border: 1px solid #728e9c; border-radius: 5px; background: #6d8c96; }
+.aesthetic-sample-light { background: linear-gradient(115deg,#6d8c96 0 46%,#a4bac0 47% 48%,#6d8c96 49%); }
+.aesthetic-sample-visible { background: linear-gradient(115deg,#6d8c96 0 38%,#c6c6b7 39% 43%,#6d8c96 44% 58%,#b9b6a9 59% 63%,#6d8c96 64%); }
+.aesthetic-sample-damage { background: linear-gradient(115deg,#6d8c96 0 40%,#203444 41% 48%,#6d8c96 49% 70%,#203444 71% 76%,#6d8c96 77%); }
+.aesthetic-choices button[aria-pressed="true"], .aesthetic-na[aria-pressed="true"] { border-color: #6ce0bb; background: #19453d; }
+.aesthetic-na { min-height: 40px; color: #bfd0dc; background: transparent; border: 1px solid #345169; border-radius: 8px; }
+.aesthetic-form label, .aesthetic-verdict label { display: grid; gap: 6px; margin-top: 14px; }
+.aesthetic-form textarea, .aesthetic-verdict textarea, .aesthetic-verdict select { width: 100%; padding: 10px; color: #eaf2fa; background: #0c1a2a; border: 1px solid #476178; border-radius: 7px; }
+.aesthetic-mark-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; color: #ffbc82; }
+.aesthetic-mark-list button { color: #ffbc82; background: #25303b; border: 1px solid #78543f; border-radius: 7px; }
+.aesthetic-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.aesthetic-footer span { text-align: center; color: #afc5d3; }
+.aesthetic-footer button { min-height: 40px; }
+.aesthetic-verdict { display: grid; gap: 4px; }
+.aesthetic-verdict h4, .aesthetic-verdict p { margin: 0; }
+@media (max-width: 1250px) { .aesthetic-body { grid-template-columns: 1fr; } .aesthetic-steps { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 .labels-view { padding-bottom: 24px; }
 .labels-view .page-intro {
   min-height: 82px;
@@ -6087,6 +6134,16 @@ body:has(#testsView:not(.hidden)), .app-shell:has(#testsView:not(.hidden)) { min
 #testsView #activeTestBody:has(> .keyboard-map) > .keyboard-progress, #testsView #activeTestBody:has(> .keyboard-map) > .keyboard-map { grid-column: 1 / -1; margin: 0; }
 #testsView #activeTestBody:has(> .keyboard-map) > .keyboard-recent { margin: 0; }
 #testsView #activeTestBody:has(> .keyboard-map) > .keyboard-capture-controls { flex-direction: column; align-items: stretch; gap: 4px; max-width: 280px; margin: 0; }
+#testsView .keyboard-layout-choice { display: flex; align-items: center; gap: 8px; font-size: 12px; line-height: 1.4; cursor: pointer; }
+#testsView .keyboard-layout-choice input { width: 16px; height: 16px; margin: 0; flex: none; }
+#testsView .keyboard-layout-choice select { min-height: 34px; }
+#testsView .windows-keyboard.without-numpad { --numpad-width: 0px; }
+#testsView #activeTestBody:has(> .windows-keyboard) > .windows-keyboard.without-numpad { width: calc(var(--main-width) + var(--key) * 3 + var(--key-gap) * 3 + 24px); }
+#testsView .windows-keyboard.without-numpad .windows-keyboard-grid { grid-template-columns: var(--main-width) var(--key); }
+#testsView .windows-keyboard.without-numpad .windows-numpad { display: none; }
+#testsView .windows-keyboard.without-numpad .windows-function-row,
+#testsView .windows-keyboard.without-numpad .windows-keyboard-grid,
+#testsView .windows-keyboard.without-numpad .windows-keyboard-footer { width: calc(var(--main-width) + var(--key) * 3 + var(--key-gap) * 3); }
 #testsView #activeTestBody:has(> .keyboard-map) > .keyboard-capture-controls p { font-size: 12px; line-height: 1.35; }
 @media (max-height: 820px) { #testsView:has(#activeTestBody > .keyboard-map) #activeTestHelp { display: none; } }
 #testsView #testPanel > header { grid-row: 1; }
@@ -6096,6 +6153,51 @@ body:has(#testsView:not(.hidden)), .app-shell:has(#testsView:not(.hidden)) { min
 #testsView #activeTestBody:has(> .keyboard-map) { grid-auto-rows: max-content; }
 #testsView .keyboard-map.windows-keyboard { --key: clamp(30px, min(3vw, 4.1vh), 52px); }
 #testsView .keyboard-map.windows-keyboard { --key: clamp(30px, min(3vw, 3.9vh), 52px); }
+/* O teclado lidera a área; controles e histórico ocupam a faixa lateral. */
+#testsView #activeTestBody:has(> .windows-keyboard) {
+  grid-template-columns: minmax(0, 1fr) minmax(190px, 240px);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 12px 20px;
+  align-items: start;
+  align-content: stretch;
+}
+#testsView #activeTestBody:has(> .windows-keyboard) > .keyboard-progress { grid-column: 1 / -1; grid-row: 1; }
+#testsView #activeTestBody:has(> .windows-keyboard) > .windows-keyboard {
+  --key: clamp(36px, min(3vw, 5.2vh), 52px);
+  grid-column: 1;
+  grid-row: 2 / 4;
+  align-self: center;
+  justify-self: center;
+  width: max-content;
+  margin: 0;
+}
+#testsView #activeTestBody:has(> .windows-keyboard) > .windows-keyboard.without-numpad { width: calc(var(--main-width) + var(--key) * 3 + var(--key-gap) * 3 + 24px); }
+#testsView #activeTestBody:has(> .windows-keyboard) > .keyboard-capture-controls {
+  grid-column: 2;
+  grid-row: 2;
+  width: 100%;
+  max-width: none;
+}
+#testsView #activeTestBody:has(> .windows-keyboard) > .keyboard-recent {
+  grid-column: 2;
+  grid-row: 3;
+  min-width: 0;
+}
+#testsView #activeTestBody:has(> .windows-keyboard) .keyboard-recent-line { max-width: 100%; }
+@media (max-width: 1250px), (max-height: 700px) {
+  #testsView #activeTestBody:has(> .windows-keyboard) { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto auto; }
+  #testsView #activeTestBody:has(> .windows-keyboard) > .keyboard-progress,
+  #testsView #activeTestBody:has(> .windows-keyboard) > .keyboard-capture-controls,
+  #testsView #activeTestBody:has(> .windows-keyboard) > .keyboard-recent,
+  #testsView #activeTestBody:has(> .windows-keyboard) > .windows-keyboard { grid-column: 1; grid-row: auto; }
+  #testsView #activeTestBody:has(> .windows-keyboard) > .keyboard-capture-controls { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  #testsView #activeTestBody:has(> .windows-keyboard) > .keyboard-capture-controls p { display: none; }
+  #testsView #activeTestBody:has(> .windows-keyboard) > .windows-keyboard { --key: clamp(34px, min(3.5vw, 5.6vh), 52px); }
+}
+@media (max-width: 1500px) and (min-width: 1251px) {
+  #testsView #activeTestBody:has(> .windows-keyboard) { grid-template-columns: minmax(0, 1fr) 190px; gap: 10px; }
+  #testsView #activeTestBody:has(> .windows-keyboard) > .windows-keyboard { --key: 37px; }
+}
 @media (max-height: 820px) {
   #testsView #testPanel:has(#activeTestBody > .keyboard-map) { padding: 10px 20px 6px; }
   #testsView #testPanel:has(#activeTestBody > .keyboard-map) .hardware-checklist { margin-top: 4px; padding-top: 0; }

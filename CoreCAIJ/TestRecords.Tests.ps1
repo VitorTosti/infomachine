@@ -23,8 +23,10 @@ try {
     try{Save-LocalTestRecord -Record $semEvidencia -Path $path | Out-Null}catch{$rejected=$true}
     if(-not $rejected){throw 'Som sem evidencia aceito'}
     Save-LocalTestRecord -Record $record -Path $path | Out-Null
+    $record | Add-Member -NotePropertyName aesthetic -NotePropertyValue ([pscustomobject]@{version=1;grade='B';parts=@([pscustomobject]@{id='lid';condition='light'})})
     Save-LocalTestRecord -Record $record -Path $path | Out-Null
     $rows=@(Read-LocalTestRecords -Path $path)
+    if($rows[1].aesthetic.grade -ne 'B'){throw 'Avaliacao estetica nao persistiu'}
     if($rows.Count -ne 2 -or $rows[0].technician -ne $record.technician -or $rows[0].notes -ne $record.notes){throw 'Reopen/unicode regression'}
     if(-not [IO.File]::Exists($path+'.bak')){throw 'Backup missing'}
     $before=[IO.File]::ReadAllText($path)
